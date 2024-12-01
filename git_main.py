@@ -1,5 +1,5 @@
 def execute_script(script_path, wlan):
-    """スクリプトを直接実行"""
+    """スクリプトを直接実行★★★"""
     try:
         print(f"Attempting to execute script: {script_path}")
         with open(script_path, "r") as script_file:
