@@ -138,26 +138,24 @@ def send_data_with_retry():
 def main():
     debug_print("測定開始")
     
-    while True:
-        try:
-            if send_data_with_retry():
+    try:
+        if send_data_with_retry():
+            led.value(1)
+            time.sleep(0.5)
+            led.value(0)
+        else:
+            for _ in range(3):  # エラー時のLED点滅
                 led.value(1)
-                time.sleep(0.5)
+                time.sleep(0.2)
                 led.value(0)
-            else:
-                for _ in range(3):  # エラー時のLED点滅
-                    led.value(1)
-                    time.sleep(0.2)
-                    led.value(0)
-                    time.sleep(0.2)
-            
-            time.sleep(SEND_INTERVAL)
-            
-        except Exception as e:
-            debug_print(f"メインループエラー: {e}")
-            time.sleep(5)
+                time.sleep(0.2)
+
+    except Exception as e:
+        debug_print(f"メインループエラー: {e}")
+        time.sleep(5)
 
 try:
     main()
 except Exception as e:
     debug_print(f"致命的エラー: {e}")
+
