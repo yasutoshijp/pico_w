@@ -30,16 +30,21 @@ def debug_print(*args):
         print("DEBUG:", *args)
 
 def connect_wifi():
-    wlan = network.WLAN(network.STA_IF)
+    """Wi-Fi接続を確立"""
+    # 既に接続されている場合はスキップ
+    if wlan.isconnected():
+        debug_print("Wi-Fi already connected.")
+        return True, wlan.config("essid"), wlan
+
     wlan.active(False)
     time.sleep(1)
     wlan.active(True)
-    
+
     for wifi_setting in WIFI_SETTINGS:
         try:
             debug_print(f"接続試行中: {wifi_setting['ssid']}...")
             wlan.connect(wifi_setting["ssid"], wifi_setting["password"])
-            
+
             # 接続待機
             start = time.time()
             while time.time() - start < MAX_WAIT:
@@ -47,12 +52,12 @@ def connect_wifi():
                     led.value(1)
                     return True, wifi_setting["ssid"], wlan
                 time.sleep(1)
-                
         except Exception as e:
             debug_print(f"接続エラー: {e}")
-    
+
     led.value(0)
     return False, None, None
+
 
 def try_send_data():
     response = None
