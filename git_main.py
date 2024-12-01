@@ -26,7 +26,7 @@ def run(wlan):
     global script_states
     if 'script_states' not in globals():
         script_states = {
-            "/remote_code/01.send_to_ss.py": {"interval": 120, "last_run": 0},
+            "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": 0},
             "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": 0},
         }
 
