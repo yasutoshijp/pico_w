@@ -1,37 +1,33 @@
-import os
-
-def execute_script(script_path):
-    """スクリプトを外部プロセスとして実行"""
+def execute_script(script_path, wlan):
+    """スクリプトを直接実行"""
     try:
-        exit_code = os.system(f"python {script_path}")
-        if exit_code == 0:
-            print(f"Executed successfully: {script_path}")
-            return True
-        else:
-            print(f"Script failed with exit code {exit_code}: {script_path}")
-            return False
+        with open(script_path, "r") as script_file:
+            code = script_file.read()
+            # ローカルスコープで実行
+            local_scope = {"wlan": wlan}
+            exec(code, {}, local_scope)  # ローカルスコープにオブジェクトを渡す
+        print(f"Executed successfully: {script_path}")
+        return True
     except Exception as e:
         print(f"Error executing script {script_path}: {e}")
         return False
 
-def run():
+def run(wlan):
     print("Running git_main.py...")
 
     # 実行するスクリプトリスト
     scripts = [
-        "/remote_code/01.send_to_ss.py",
-        "/remote_code/02.send_to_ss.py",
+        {"path": "/remote_code/01.send_to_ss.py", "interval": 120, "last_run": 0},
+        {"path": "/remote_code/02.send_to_ss.py", "interval": 180, "last_run": 0},
     ]
 
-    # スクリプトを順番に実行
-    for script_path in scripts:
-        print(f"Executing {script_path}...")
-        success = execute_script(script_path)
-        if success:
-            print(f"{script_path} executed successfully.")
-        else:
-            print(f"Error executing {script_path}.")
-
-# 実行
-if __name__ == "__main__":
-    run()
+    now = time.time()
+    for script in scripts:
+        if now - script["last_run"] >= script["interval"]:
+            print(f"Executing {script['path']}...")
+            success = execute_script(script["path"], wlan)
+            if success:
+                print(f"{script['path']} executed successfully.")
+            else:
+                print(f"Error executing {script['path']}.")
+            script["last_run"] = now
