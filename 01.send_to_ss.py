@@ -76,9 +76,9 @@ def try_send_data():
             
             # センサーからデータを取得
             temp, press, hum = sensor.read_compensated_data()
-            temperature = temp / 100.0  # 温度: °C
-            pressure = press / 25600.0  # 気圧: hPa
-            humidity = hum / 1024.0  # 湿度: %
+            temperature = temp  # 温度: °C
+            pressure = press # 気圧: hPa
+            humidity = hum  # 湿度: %
             
             debug_print(f"温度: {temperature:.1f}°C")
             debug_print(f"気圧: {pressure:.1f}hPa")
