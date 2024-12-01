@@ -1,5 +1,5 @@
 def execute_script(script_path, wlan):
-    """スクリプトを直接実行★★★"""
+    """スクリプトを直接実行★■★"""
     try:
         print(f"Attempting to execute script: {script_path}")
         with open(script_path, "r") as script_file:
@@ -9,6 +9,9 @@ def execute_script(script_path, wlan):
             exec(code, {}, local_scope)  # ローカルスコープにオブジェクトを渡す
         print(f"Executed successfully: {script_path}")
         return True
+    except FileNotFoundError:
+        print(f"Script file not found: {script_path}")
+        return False
     except Exception as e:
         print(f"Error executing script {script_path}: {e}")
         return False
@@ -24,6 +27,9 @@ def run(wlan):
 
     now = time.time()
     for script in scripts:
+        print(f"Checking script: {script['path']}")
+        print(f"Time since last run: {now - script['last_run']} seconds")
+        print(f"Interval: {script['interval']} seconds")
         if now - script["last_run"] >= script["interval"]:
             print(f"Executing {script['path']}...")
             success = execute_script(script["path"], wlan)
