@@ -68,16 +68,27 @@ def try_send_data():
             return False
 
         # BME280センサー初期化と読み取り
-        i2c = I2C(0, scl=Pin(1), sda=Pin(0))
-        sensor = BME280(i2c)
-        temperature, pressure, humidity = sensor.read()
-        signal_strength = wlan.status('rssi') if wlan else None
-        
-        debug_print(f"温度: {temperature:.1f}°C")
-        debug_print(f"気圧: {pressure:.1f}hPa")
-        debug_print(f"湿度: {humidity:.1f}%")
-        
+        i2c = I2C(0, scl=Pin(5), sda=Pin(4), freq=100000)
+        try:
+            debug_print("Initializing BME280...")
+            sensor = BME280(i2c=i2c)
+            debug_print("BME280 initialized successfully.")
+            
+            # センサーからデータを取得
+            temp, press, hum = sensor.read_compensated_data()
+            temperature = temp / 100.0  # 温度: °C
+            pressure = press / 25600.0  # 気圧: hPa
+            humidity = hum / 1024.0  # 湿度: %
+            
+            debug_print(f"温度: {temperature:.1f}°C")
+            debug_print(f"気圧: {pressure:.1f}hPa")
+            debug_print(f"湿度: {humidity:.1f}%")
+        except Exception as e:
+            debug_print(f"Error initializing or reading from BME280: {e}")
+            return False
+
         # データ作成
+        signal_strength = wlan.status('rssi') if wlan else None
         data = {
             "device_id": "PicoW-01",
             "ip_address": wlan.ifconfig()[0],
@@ -114,6 +125,7 @@ def try_send_data():
             wlan.active(False)
         led.value(0)
         gc.collect()
+
 
 def send_data_with_retry():
     for attempt in range(MAX_RETRIES):
