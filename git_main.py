@@ -1,5 +1,6 @@
 import time
 import json
+import os
 
 # 状態ファイルとログファイルのパス
 STATE_FILE = "script_states.txt"
@@ -7,89 +8,128 @@ LOG_FILE = "script_logs.txt"
 
 def load_script_states():
     """ファイルから実行状態を読み込む"""
+    print(f"\nChecking if {STATE_FILE} exists...")
     try:
-        with open(STATE_FILE, "r") as f:
-            states = {}
-            for line in f:
-                path, interval, last_run, last_status = line.strip().split(",")
-                states[path] = {
-                    "interval": int(interval),
-                    "last_run": float(last_run),
-                    "last_status": last_status == "True"  # "True"/"False" を bool に変換
-                }
-            return states
-    except:
-        # デフォルト値を返す
-        return {
-            "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": 0, "last_status": True},  # 15分
-            "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": 0, "last_status": True},  # 3分
-        }
+        os.stat(STATE_FILE)
+        print(f"{STATE_FILE} found, loading states...")
+        try:
+            with open(STATE_FILE, "r") as f:
+                states = {}
+                for line in f:
+                    path, interval, last_run, last_status = line.strip().split(",")
+                    states[path] = {
+                        "interval": int(interval),
+                        "last_run": float(last_run),
+                        "last_status": last_status == "True"
+                    }
+                print(f"Successfully loaded states: {states}")
+                return states
+        except Exception as e:
+            print(f"Error reading {STATE_FILE}: {e}")
+            return get_default_states()
+    except OSError:
+        print(f"{STATE_FILE} not found, using default states")
+        return get_default_states()
+
+def get_default_states():
+    """デフォルトの状態を返す"""
+    default_states = {
+        "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": 0, "last_status": True},  # 15分
+        "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": 0, "last_status": True},  # 3分
+    }
+    print(f"Using default states: {default_states}")
+    return default_states
 
 def save_script_states(states):
     """実行状態をファイルに保存"""
     try:
         with open(STATE_FILE, "w") as f:
-            for path, state in states.items():
+            for path, state in items(states):
                 f.write(f"{path},{state['interval']},{state['last_run']},{state['last_status']}\n")
+        print(f"Successfully saved states to {STATE_FILE}")
     except Exception as e:
         print(f"Error saving states: {e}")
 
 def log_execution(script_path, status, message=""):
     """スクリプトの実行ログを記録"""
     try:
-        timestamp = time.localtime()
-        formatted_time = f"{timestamp[0]:04d}-{timestamp[1]:02d}-{timestamp[2]:02d} {timestamp[3]:02d}:{timestamp[4]:02d}:{timestamp[5]:02d}"
+        # 現在時刻の取得
+        t = time.localtime()
+        unix_timestamp = time.time()
+        formatted_time = f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
         
-        log_entry = f"[{formatted_time}] {script_path} - Status: {'Success' if status else 'Failed'}"
+        log_entry = {
+            "timestamp": unix_timestamp,
+            "formatted_time": formatted_time,
+            "script": script_path,
+            "status": "Success" if status else "Failed",
+            "message": message
+        }
+        
+        log_line = f"[{formatted_time}] ({unix_timestamp}) {script_path} - Status: {log_entry['status']}"
         if message:
-            log_entry += f" - {message}"
+            log_line += f" - {message}"
         
         with open(LOG_FILE, "a") as f:
-            f.write(log_entry + "\n")
+            f.write(log_line + "\n")
+        print(f"Logged execution: {log_line}")
     except Exception as e:
         print(f"Error writing log: {e}")
 
 def execute_script(script_path, wlan):
     """スクリプトを実行"""
+    print(f"\n=== Executing {script_path} ===")
     try:
-        print(f"Attempting to execute script: {script_path}")
+        print(f"Reading script file...")
         with open(script_path, "r") as script_file:
             code = script_file.read()
+            print(f"Loaded {len(code)} bytes of code")
+            
             # グローバルスコープにwlanを追加
             global_scope = globals()
             global_scope['wlan'] = wlan
+            
+            print(f"Starting execution...")
             exec(code, global_scope)
-        print(f"Executed successfully: {script_path}")
+            
+        print(f"Successfully executed: {script_path}")
         return True
     except Exception as e:
         print(f"Error executing script {script_path}: {e}")
         return False
 
 def run(wlan):
-    print("Running git_main.py...")
+    print("\n=== Starting git_main.py execution ===")
+    print("Loading script states...")
 
     # 状態をファイルから読み込む
     script_states = load_script_states()
     
     now = time.time()
-    print(f"Current time: {now}")
+    print(f"\nCurrent time: {now}")
+    print(f"Current formatted time: {time.localtime()}")
     
     for script_path, state in script_states.items():
-        print(f"Checking script: {script_path}")
-        print(f"Last run: {state['last_run']}, Interval: {state['interval']}, Last status: {state['last_status']}")
+        print(f"\nProcessing script: {script_path}")
+        print(f"Last run: {state['last_run']}")
+        print(f"Interval: {state['interval']}")
+        print(f"Last status: {state['last_status']}")
         
         # 前回失敗時または実行間隔を超えている場合に実行
-        if not state['last_status'] or now - state['last_run'] >= state['interval']:
-            print(f"Executing script: {script_path}")
+        should_run = not state['last_status'] or now - state['last_run'] >= state['interval']
+        if should_run:
+            reason = "previous failure" if not state['last_status'] else "interval elapsed"
+            print(f"Executing {script_path} (reason: {reason})")
+            
             execution_success = execute_script(script_path, wlan)
             
             # 実行結果を記録
             state['last_status'] = execution_success
             if execution_success:
                 state['last_run'] = now
-                log_execution(script_path, True)
+                log_execution(script_path, True, f"Executed ({reason})")
             else:
-                log_execution(script_path, False, "Execution failed")
+                log_execution(script_path, False, f"Execution failed ({reason})")
             
             save_script_states(script_states)
             print(f"Updated state for {script_path}: Success={execution_success}")
@@ -98,6 +138,10 @@ def run(wlan):
             message = f"Skipping - Next run in {remaining_time:.2f} seconds"
             print(f"Skipping {script_path} - {message}")
             log_execution(script_path, True, message)
+
+        print(f"Finished processing {script_path}")
+
+    print("\n=== Completed git_main.py execution ===")
 
 if __name__ == "__main__":
     wlan = None  # wlanは実際の環境で設定
