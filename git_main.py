@@ -1,3 +1,4 @@
+# Retrieved from GitHub on 2024-12-03 08:37:23
 import time
 import json
 import os
@@ -85,7 +86,15 @@ def execute_script(script_path, wlan):
             code = script_file.read()
             print(f"Loaded {len(code)} bytes of code")
             
-            # グローバルスコープにwlanを追加
+            # 必要なモジュールをインポート
+            import machine
+            import gc
+            try:
+                import bme280
+            except ImportError:
+                print("Warning: BME280 module not found")
+            
+            # グローバルスコープにモジュールを追加
             global_scope = {
                 'wlan': wlan,
                 'network': network,
@@ -100,14 +109,8 @@ def execute_script(script_path, wlan):
                 'gc': gc,           # gcモジュールを追加
                 'Pin': machine.Pin,  # Pinクラスを直接追加
                 'I2C': machine.I2C,  # I2Cクラスを直接追加
+                'BME280': bme280.BME280 if 'bme280' in locals() else None  # BME280クラスを条件付きで追加
             }
-            
-            try:
-                # BME280モジュールのインポートを試みる
-                import bme280
-                global_scope['BME280'] = bme280.BME280
-            except ImportError:
-                print("Warning: BME280 module not found")
             
             print(f"Starting execution...")
             exec(code, global_scope)
@@ -117,7 +120,7 @@ def execute_script(script_path, wlan):
     except Exception as e:
         print(f"Error executing script {script_path}: {e}")
         return False
-    
+
 def run(wlan):
     print("\n=== Starting git_main.py execution ===")
     print("Loading script states...")
@@ -166,3 +169,4 @@ def run(wlan):
 if __name__ == "__main__":
     wlan = None  # wlanは実際の環境で設定
     run(wlan)
+
