@@ -14,6 +14,11 @@ def load_script_states():
         print(f"{STATE_FILE} found, loading states...")
         try:
             with open(STATE_FILE, "r") as f:
+                content = f.read().strip()
+                if not content:  # ファイルが空の場合
+                    print("State file is empty, using default states")
+                    return get_default_states()
+                    
                 states = {}
                 for line in f:
                     path, interval, last_run, last_status = line.strip().split(",")
@@ -22,6 +27,10 @@ def load_script_states():
                         "last_run": float(last_run),
                         "last_status": last_status == "True"
                     }
+                if not states:  # 読み込んだ状態が空の場合
+                    print("No states loaded, using default states")
+                    return get_default_states()
+                    
                 print(f"Successfully loaded states: {states}")
                 return states
         except Exception as e:
