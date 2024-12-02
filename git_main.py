@@ -96,8 +96,27 @@ def execute_script(script_path, wlan):
             code = script_file.read()
             print(f"Loaded {len(code)} bytes of code")
             
-            # グローバルスコープに全ての必要なモジュールとクラスを追加
-            global_scope = {
+            # 必要なモジュールを直接インポート
+            import machine
+            import network
+            import time
+            import os
+            import urequests
+            import json
+            import io
+            import sys
+            import ubinascii
+            import gc
+            
+            try:
+                from bme280 import BME280
+            except ImportError:
+                print("Warning: BME280 module not available")
+                BME280 = None
+            
+            # グローバルスコープにモジュールと必要なオブジェクトを追加
+            globals_dict = globals()  # 現在のグローバル名前空間を取得
+            globals_dict.update({
                 'wlan': wlan,
                 'machine': machine,
                 'Pin': machine.Pin,
@@ -110,15 +129,12 @@ def execute_script(script_path, wlan):
                 'json': json,
                 'io': io,
                 'sys': sys,
-                'ubinascii': ubinascii
-            }
-
-            # BME280が利用可能な場合は追加
-            if 'bme280' in globals():
-                global_scope['BME280'] = bme280.BME280
+                'ubinascii': ubinascii,
+                'BME280': BME280
+            })
             
-            print(f"Starting execution...")
-            exec(code, global_scope)
+            print(f"Starting execution with globals: {list(globals_dict.keys())}")
+            exec(code, globals_dict)
             
         print(f"Successfully executed: {script_path}")
         return True
