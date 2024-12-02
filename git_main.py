@@ -44,7 +44,7 @@ def save_script_states(states):
     """実行状態をファイルに保存"""
     try:
         with open(STATE_FILE, "w") as f:
-            for path, state in items(states):
+            for path, state in states.items():
                 f.write(f"{path},{state['interval']},{state['last_run']},{state['last_status']}\n")
         print(f"Successfully saved states to {STATE_FILE}")
     except Exception as e:
@@ -53,26 +53,17 @@ def save_script_states(states):
 def log_execution(script_path, status, message=""):
     """スクリプトの実行ログを記録"""
     try:
-        # 現在時刻の取得
         t = time.localtime()
         unix_timestamp = time.time()
         formatted_time = f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
         
-        log_entry = {
-            "timestamp": unix_timestamp,
-            "formatted_time": formatted_time,
-            "script": script_path,
-            "status": "Success" if status else "Failed",
-            "message": message
-        }
-        
-        log_line = f"[{formatted_time}] ({unix_timestamp}) {script_path} - Status: {log_entry['status']}"
+        log_entry = f"[{formatted_time}] ({unix_timestamp}) {script_path} - Status: {'Success' if status else 'Failed'}"
         if message:
-            log_line += f" - {message}"
+            log_entry += f" - {message}"
         
         with open(LOG_FILE, "a") as f:
-            f.write(log_line + "\n")
-        print(f"Logged execution: {log_line}")
+            f.write(log_entry + "\n")
+        print(f"Logged execution: {log_entry}")
     except Exception as e:
         print(f"Error writing log: {e}")
 
@@ -86,9 +77,17 @@ def execute_script(script_path, wlan):
             print(f"Loaded {len(code)} bytes of code")
             
             # グローバルスコープにwlanを追加
-            global_scope = globals()
-            global_scope['wlan'] = wlan
-            
+            global_scope = {
+                'wlan': wlan,
+                'network': network,
+                'time': time,
+                'os': os,
+                'urequests': urequests,
+                'json': json,
+                'io': io,
+                'sys': sys,
+                'ubinascii': ubinascii
+            }
             print(f"Starting execution...")
             exec(code, global_scope)
             
