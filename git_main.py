@@ -1,7 +1,17 @@
-# Retrieved from GitHub on 2024-12-03 08:37:23
 import time
 import json
 import os
+import machine
+import gc
+import network
+import urequests
+import sys
+import io
+import ubinascii
+try:
+    import bme280
+except ImportError:
+    print("Warning: BME280 module not found")
 
 # 状態ファイルとログファイルのパス
 STATE_FILE = "script_states.txt"
@@ -16,7 +26,7 @@ def load_script_states():
         try:
             with open(STATE_FILE, "r") as f:
                 content = f.read().strip()
-                if not content:  # ファイルが空の場合
+                if not content:
                     print("State file is empty, using default states")
                     return get_default_states()
                     
@@ -28,7 +38,7 @@ def load_script_states():
                         "last_run": float(last_run),
                         "last_status": last_status == "True"
                     }
-                if not states:  # 読み込んだ状態が空の場合
+                if not states:
                     print("No states loaded, using default states")
                     return get_default_states()
                     
@@ -86,17 +96,13 @@ def execute_script(script_path, wlan):
             code = script_file.read()
             print(f"Loaded {len(code)} bytes of code")
             
-            # 必要なモジュールをインポート
-            import machine
-            import gc
-            try:
-                import bme280
-            except ImportError:
-                print("Warning: BME280 module not found")
-            
-            # グローバルスコープにモジュールを追加
+            # グローバルスコープに全ての必要なモジュールとクラスを追加
             global_scope = {
                 'wlan': wlan,
+                'machine': machine,
+                'Pin': machine.Pin,
+                'I2C': machine.I2C,
+                'gc': gc,
                 'network': network,
                 'time': time,
                 'os': os,
@@ -104,13 +110,12 @@ def execute_script(script_path, wlan):
                 'json': json,
                 'io': io,
                 'sys': sys,
-                'ubinascii': ubinascii,
-                'machine': machine,  # machineモジュールを追加
-                'gc': gc,           # gcモジュールを追加
-                'Pin': machine.Pin,  # Pinクラスを直接追加
-                'I2C': machine.I2C,  # I2Cクラスを直接追加
-                'BME280': bme280.BME280 if 'bme280' in locals() else None  # BME280クラスを条件付きで追加
+                'ubinascii': ubinascii
             }
+
+            # BME280が利用可能な場合は追加
+            if 'bme280' in globals():
+                global_scope['BME280'] = bme280.BME280
             
             print(f"Starting execution...")
             exec(code, global_scope)
@@ -169,4 +174,3 @@ def run(wlan):
 if __name__ == "__main__":
     wlan = None  # wlanは実際の環境で設定
     run(wlan)
-
