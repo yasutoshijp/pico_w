@@ -1,7 +1,9 @@
 import time
+import json
 
-# 状態ファイルのパス
+# 状態ファイルとログファイルのパス
 STATE_FILE = "script_states.txt"
+LOG_FILE = "script_logs.txt"
 
 def load_script_states():
     """ファイルから実行状態を読み込む"""
@@ -9,17 +11,18 @@ def load_script_states():
         with open(STATE_FILE, "r") as f:
             states = {}
             for line in f:
-                path, interval, last_run = line.strip().split(",")
+                path, interval, last_run, last_status = line.strip().split(",")
                 states[path] = {
                     "interval": int(interval),
-                    "last_run": float(last_run)
+                    "last_run": float(last_run),
+                    "last_status": last_status == "True"  # "True"/"False" を bool に変換
                 }
             return states
     except:
-        # ファイルが存在しない、または読み込みエラーの場合はデフォルト値を返す
+        # デフォルト値を返す
         return {
-            "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": 0},  # 15分
-            "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": 0},  # 3分
+            "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": 0, "last_status": True},  # 15分
+            "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": 0, "last_status": True},  # 3分
         }
 
 def save_script_states(states):
@@ -27,12 +30,27 @@ def save_script_states(states):
     try:
         with open(STATE_FILE, "w") as f:
             for path, state in states.items():
-                f.write(f"{path},{state['interval']},{state['last_run']}\n")
+                f.write(f"{path},{state['interval']},{state['last_run']},{state['last_status']}\n")
     except Exception as e:
         print(f"Error saving states: {e}")
 
+def log_execution(script_path, status, message=""):
+    """スクリプトの実行ログを記録"""
+    try:
+        timestamp = time.localtime()
+        formatted_time = f"{timestamp[0]:04d}-{timestamp[1]:02d}-{timestamp[2]:02d} {timestamp[3]:02d}:{timestamp[4]:02d}:{timestamp[5]:02d}"
+        
+        log_entry = f"[{formatted_time}] {script_path} - Status: {'Success' if status else 'Failed'}"
+        if message:
+            log_entry += f" - {message}"
+        
+        with open(LOG_FILE, "a") as f:
+            f.write(log_entry + "\n")
+    except Exception as e:
+        print(f"Error writing log: {e}")
+
 def execute_script(script_path, wlan):
-    """スクリプトを直接実行"""
+    """スクリプトを実行"""
     try:
         print(f"Attempting to execute script: {script_path}")
         with open(script_path, "r") as script_file:
@@ -58,20 +76,28 @@ def run(wlan):
     
     for script_path, state in script_states.items():
         print(f"Checking script: {script_path}")
-        print(f"Last run: {state['last_run']}, Interval: {state['interval']}")
+        print(f"Last run: {state['last_run']}, Interval: {state['interval']}, Last status: {state['last_status']}")
         
-        # 実行間隔を満たしているか確認
-        if now - state['last_run'] >= state['interval']:
+        # 前回失敗時または実行間隔を超えている場合に実行
+        if not state['last_status'] or now - state['last_run'] >= state['interval']:
             print(f"Executing script: {script_path}")
-            if execute_script(script_path, wlan):
-                state['last_run'] = now  # 実行時刻を更新
-                save_script_states(script_states)  # 状態を保存
-                print(f"Successfully executed and updated last_run time for {script_path}")
+            execution_success = execute_script(script_path, wlan)
+            
+            # 実行結果を記録
+            state['last_status'] = execution_success
+            if execution_success:
+                state['last_run'] = now
+                log_execution(script_path, True)
             else:
-                print(f"Failed to execute {script_path}")
+                log_execution(script_path, False, "Execution failed")
+            
+            save_script_states(script_states)
+            print(f"Updated state for {script_path}: Success={execution_success}")
         else:
             remaining_time = state['interval'] - (now - state['last_run'])
-            print(f"Skipping {script_path} - not yet time to run. Remaining time: {remaining_time:.2f} seconds")
+            message = f"Skipping - Next run in {remaining_time:.2f} seconds"
+            print(f"Skipping {script_path} - {message}")
+            log_execution(script_path, True, message)
 
 if __name__ == "__main__":
     wlan = None  # wlanは実際の環境で設定
