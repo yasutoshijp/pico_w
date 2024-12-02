@@ -95,8 +95,20 @@ def execute_script(script_path, wlan):
                 'json': json,
                 'io': io,
                 'sys': sys,
-                'ubinascii': ubinascii
+                'ubinascii': ubinascii,
+                'machine': machine,  # machineモジュールを追加
+                'gc': gc,           # gcモジュールを追加
+                'Pin': machine.Pin,  # Pinクラスを直接追加
+                'I2C': machine.I2C,  # I2Cクラスを直接追加
             }
+            
+            try:
+                # BME280モジュールのインポートを試みる
+                import bme280
+                global_scope['BME280'] = bme280.BME280
+            except ImportError:
+                print("Warning: BME280 module not found")
+            
             print(f"Starting execution...")
             exec(code, global_scope)
             
@@ -105,7 +117,7 @@ def execute_script(script_path, wlan):
     except Exception as e:
         print(f"Error executing script {script_path}: {e}")
         return False
-
+    
 def run(wlan):
     print("\n=== Starting git_main.py execution ===")
     print("Loading script states...")
