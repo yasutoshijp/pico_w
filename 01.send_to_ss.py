@@ -25,16 +25,26 @@ WIFI_SETTINGS = [
     {"ssid": "moonwalker", "password": "11112222"}
 ]
 
+# グローバル変数
+wlan = None
+current_ssid = None
+
 def debug_print(*args):
     if DEBUG:
         print("DEBUG:", *args)
 
 def connect_wifi():
     """Wi-Fi接続を確立"""
+    global wlan, current_ssid
+
+    # wlanが未初期化の場合は初期化
+    if wlan is None:
+        wlan = network.WLAN(network.STA_IF)
+
     # 既に接続されている場合はスキップ
     if wlan.isconnected():
         debug_print("Wi-Fi already connected.")
-        return True, wlan.config("essid"), wlan
+        return True, current_ssid or wlan.config("essid"), wlan
 
     wlan.active(False)
     time.sleep(1)
@@ -50,7 +60,8 @@ def connect_wifi():
             while time.time() - start < MAX_WAIT:
                 if wlan.isconnected():
                     led.value(1)
-                    return True, wifi_setting["ssid"], wlan
+                    current_ssid = wifi_setting["ssid"]
+                    return True, current_ssid, wlan
                 time.sleep(1)
         except Exception as e:
             debug_print(f"接続エラー: {e}")
@@ -58,12 +69,14 @@ def connect_wifi():
     led.value(0)
     return False, None, None
 
-
 def try_send_data():
+    """データを送信する"""
+    global wlan
     response = None
+    local_wlan = None
     try:
         gc.collect()
-        connected, ssid, wlan = connect_wifi()
+        connected, ssid, local_wlan = connect_wifi()
         if not connected:
             return False
 
@@ -77,8 +90,8 @@ def try_send_data():
             # センサーからデータを取得
             temp, press, hum = sensor.read_compensated_data()
             temperature = temp  # 温度: °C
-            pressure = press # 気圧: hPa
-            humidity = hum  # 湿度: %
+            pressure = press   # 気圧: hPa
+            humidity = hum    # 湿度: %
             
             debug_print(f"温度: {temperature:.1f}°C")
             debug_print(f"気圧: {pressure:.1f}hPa")
@@ -88,12 +101,12 @@ def try_send_data():
             return False
 
         # データ作成
-        signal_strength = wlan.status('rssi') if wlan else None
+        signal_strength = local_wlan.status('rssi') if local_wlan else None
         data = {
             "device_id": "PicoW-01",
-            "ip_address": wlan.ifconfig()[0],
+            "ip_address": local_wlan.ifconfig()[0],
             "wifi_ssid": ssid,
-            "mac_address": ":".join(["{:02x}".format(b) for b in wlan.config('mac')]),
+            "mac_address": ":".join(["{:02x}".format(b) for b in local_wlan.config('mac')]),
             "memory_free": gc.mem_free(),
             "signal_strength": signal_strength,
             "temperature": temperature,
@@ -121,13 +134,13 @@ def try_send_data():
     finally:
         if response:
             response.close()
-        if wlan:
-            wlan.active(False)
+        if local_wlan and local_wlan.isconnected():
+            local_wlan.active(False)
         led.value(0)
         gc.collect()
 
-
 def send_data_with_retry():
+    """リトライ機能付きでデータを送信"""
     for attempt in range(MAX_RETRIES):
         if try_send_data():
             return True
@@ -136,6 +149,7 @@ def send_data_with_retry():
     return False
 
 def main():
+    """メイン処理"""
     debug_print("測定開始")
     
     try:
@@ -158,4 +172,3 @@ try:
     main()
 except Exception as e:
     debug_print(f"致命的エラー: {e}")
-
