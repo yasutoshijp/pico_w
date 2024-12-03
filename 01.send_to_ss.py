@@ -101,34 +101,42 @@ def try_send_data():
             return False
 
         # データ作成
-        signal_strength = local_wlan.status('rssi') if local_wlan else None
         data = {
             "device_id": "PicoW-01",
             "ip_address": local_wlan.ifconfig()[0],
             "wifi_ssid": ssid,
             "mac_address": ":".join(["{:02x}".format(b) for b in local_wlan.config('mac')]),
             "memory_free": gc.mem_free(),
-            "signal_strength": signal_strength,
+            "signal_strength": local_wlan.status('rssi') if local_wlan else None,
             "temperature": temperature,
             "pressure": pressure,
             "humidity": humidity,
             "timestamp": time.time()
         }
         
-        # データ送信
-        response = urequests.post(
-            ENDPOINT,
-            json=data,
-            headers={
-                'Content-Type': 'application/json'
-            },
-            timeout=15  # タイムアウトを15秒に設定
-        )
+        debug_print("Attempting to send data...")
+        debug_print(f"Endpoint: {ENDPOINT}")
+        debug_print(f"Data: {data}")
         
-        success = response.status_code in [200, 400, 405]
-        if response:
-            response.close()
-        return success
+        # データ送信
+        try:
+            response = urequests.post(
+                ENDPOINT,
+                json=data,
+                headers={'Content-Type': 'application/json'},
+                timeout=15
+            )
+            debug_print(f"Response status: {response.status_code}")
+            debug_print(f"Response text: {response.text}")
+            
+        except OSError as e:
+            debug_print(f"Network error: {e}")
+            if str(e) == "-2":
+                debug_print("Connection failed - this might be a DNS or SSL/TLS issue")
+            return False
+        except Exception as e:
+            debug_print(f"Error sending data: {e}")
+            return False
             
     except Exception as e:
         debug_print(f"エラー: {e}")
