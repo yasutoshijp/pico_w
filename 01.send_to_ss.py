@@ -128,7 +128,17 @@ def try_send_data():
             )
             debug_print(f"Response status: {response.status_code}")
             debug_print(f"Response text: {response.text}")
-            
+
+            # ステータスコードが400でも許容
+            if response.status_code == 400:
+                debug_print("400 Bad Request: Ignored as acceptable.")
+                return True
+
+            # 許容外のステータスコードは失敗扱い
+            if response.status_code != 200:
+                debug_print("Unexpected response status, treating as failure.")
+                return False
+
         except OSError as e:
             debug_print(f"Network error: {e}")
             if str(e) == "-2":
@@ -149,6 +159,7 @@ def try_send_data():
             local_wlan.active(False)
         led.value(0)
         gc.collect()
+
 
 def send_data_with_retry():
     """リトライ機能付きでデータを送信"""
