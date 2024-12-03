@@ -119,7 +119,10 @@ def try_send_data():
         response = urequests.post(
             ENDPOINT,
             json=data,
-            headers={'Content-Type': 'application/json'}
+            headers={
+                'Content-Type': 'application/json'
+            },
+            timeout=15  # タイムアウトを15秒に設定
         )
         
         success = response.status_code in [200, 400, 405]
