@@ -1,4 +1,4 @@
-# git_main.py
+import sys
 import time
 import json
 import os
@@ -6,13 +6,44 @@ import machine
 import gc
 import network
 import urequests
-import sys
 import io
 import ubinascii
+
+def format_time(timestamp):
+    """UNIXタイムスタンプを読みやすい形式に変換"""
+    t = time.localtime(timestamp)
+    return f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
+
+def format_duration(seconds):
+    """秒数を読みやすい時間表記に変換"""
+    if seconds < 60:
+        return f"{int(seconds)}秒"
+    elif seconds < 3600:
+        minutes = seconds // 60
+        remaining_seconds = seconds % 60
+        return f"{int(minutes)}分{int(remaining_seconds)}秒"
+    else:
+        hours = seconds // 3600
+        remaining_minutes = (seconds % 3600) // 60
+        return f"{int(hours)}時間{int(remaining_minutes)}分"
+
+# BME280クラスをグローバルに定義
 try:
-    import bme280
-except ImportError:
-    print("Warning: BME280 module not found")
+    with open('/remote_code/lib/bme280.py', 'r') as f:
+        bme280_code = f.read()
+        # モジュールの名前空間を作成
+        module_namespace = {
+            '__name__': 'bme280',
+            'machine': machine,
+            'time': time
+        }
+        exec(bme280_code, module_namespace)
+        # グローバル空間にBME280クラスを追加
+        BME280 = module_namespace['BME280']
+        sys.modules['bme280'] = type('Module', (), {'BME280': BME280})
+    print("BME280 module loaded successfully")
+except Exception as e:
+    print(f"Error loading BME280 module: {e}")
 
 # 状態ファイルとログファイルのパス
 STATE_FILE = "script_states.txt"
@@ -20,11 +51,12 @@ LOG_FILE = "script_logs.txt"
 
 def get_default_states():
     """デフォルトの状態を返す"""
+    current_time = time.time()  # 現在時刻を取得
     default_states = {
-        "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": 0, "last_status": True},  # 15分
-        "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": 0, "last_status": True},  # 3分
+        "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": current_time, "last_status": True},  # 15分
+        "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": current_time, "last_status": True},  # 3分
     }
-    print(f"Using default states: {default_states}")
+    print(f"Using default states with current time: {format_time(current_time)}")
     return default_states
 
 def load_script_states():
@@ -47,9 +79,11 @@ def load_script_states():
                 for line in lines:
                     try:
                         path, interval, last_run, last_status = line.strip().split(",")
+                        last_run_float = float(last_run)
+                        print(f"Script: {path}, Last run: {format_time(last_run_float)}")
                         states[path] = {
                             "interval": int(interval),
-                            "last_run": float(last_run),
+                            "last_run": last_run_float,
                             "last_status": last_status.lower() == "true"
                         }
                     except (ValueError, IndexError) as e:
@@ -60,7 +94,12 @@ def load_script_states():
                     print("No valid states loaded, using default states")
                     return get_default_states()
                 
-                print(f"Successfully loaded states: {states}")
+                print("Successfully loaded states:")
+                for path, state in states.items():
+                    print(f"  {path}:")
+                    print(f"    Interval: {format_duration(state['interval'])}")
+                    print(f"    Last run: {format_time(state['last_run'])}")
+                    print(f"    Status: {state['last_status']}")
                 return states
                 
         except Exception as e:
@@ -101,11 +140,10 @@ def save_script_states(states):
 def log_execution(script_path, status, message=""):
     """スクリプトの実行ログを記録"""
     try:
-        t = time.localtime()
-        unix_timestamp = time.time()
-        formatted_time = f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
+        current_time = time.time()
+        formatted_time = format_time(current_time)
         
-        log_entry = f"[{formatted_time}] ({unix_timestamp}) {script_path} - Status: {'Success' if status else 'Failed'}"
+        log_entry = f"[{formatted_time}] {script_path} - Status: {'Success' if status else 'Failed'}"
         if message:
             log_entry += f" - {message}"
         
@@ -156,14 +194,9 @@ def execute_script(script_path, wlan):
                 'io': io,
                 'sys': sys,
                 'ubinascii': ubinascii,
+                'BME280': BME280,
+                'bme280': sys.modules['bme280']
             }
-            
-            # BME280モジュールが利用可能な場合は追加
-            try:
-                from bme280 import BME280
-                globals_dict['BME280'] = BME280
-            except ImportError:
-                print("Warning: BME280 module not available")
             
             print(f"Starting execution with globals: {list(globals_dict.keys())}")
             exec(code, globals_dict)
@@ -173,7 +206,7 @@ def execute_script(script_path, wlan):
         
     except Exception as e:
         print(f"Error executing script {script_path}: {e}")
-        sys.print_exception(e)  # 詳細なエラー情報を出力
+        sys.print_exception(e)
         return False
 
 def run(wlan):
@@ -184,13 +217,12 @@ def run(wlan):
     script_states = load_script_states()
     now = time.time()
     
-    print(f"\nCurrent time: {now}")
-    print(f"Current formatted time: {time.localtime()}")
+    print(f"\nCurrent time: {format_time(now)}")
     
     for script_path, state in script_states.items():
         print(f"\nProcessing script: {script_path}")
-        print(f"Last run: {state['last_run']}")
-        print(f"Interval: {state['interval']}")
+        print(f"Last run: {format_time(state['last_run'])}")
+        print(f"Interval: {format_duration(state['interval'])}")
         print(f"Last status: {state['last_status']}")
         
         try:
@@ -198,8 +230,11 @@ def run(wlan):
             should_run = (not state['last_status']) or (time_since_last_run >= state['interval'])
             
             if should_run:
-                reason = "previous failure" if not state['last_status'] else f"interval elapsed ({time_since_last_run:.1f}s >= {state['interval']}s)"
-                print(f"Executing {script_path} (reason: {reason})")
+                if not state['last_status']:
+                    reason = "前回失敗のため再実行"
+                else:
+                    reason = f"インターバル経過 (経過時間: {format_duration(time_since_last_run)})"
+                print(f"実行理由: {reason}")
                 
                 # スクリプトの存在確認
                 try:
@@ -210,24 +245,25 @@ def run(wlan):
                     continue
                 
                 # スクリプト実行
+
                 execution_success = execute_script(script_path, wlan)
                 
                 # 状態の更新
                 state['last_status'] = execution_success
+                state['last_run'] = now  # 成功/失敗に関わらず更新
                 if execution_success:
-                    state['last_run'] = now
-                    log_execution(script_path, True, f"Executed ({reason})")
+                    log_execution(script_path, True, f"実行完了 ({reason})")
                 else:
-                    log_execution(script_path, False, f"Execution failed ({reason})")
-                
+                    log_execution(script_path, False, f"実行失敗 ({reason})")
+
                 # 状態の保存
                 save_script_states(script_states)
                 print(f"Updated state for {script_path}: Success={execution_success}")
                 
             else:
                 remaining_time = state['interval'] - time_since_last_run
-                message = f"Skipping - Next run in {remaining_time:.1f} seconds"
-                print(f"Skipping {script_path} - {message}")
+                message = f"スキップ - 次回実行まで {format_duration(remaining_time)}"
+                print(f"スキップ {script_path} - {message}")
                 log_execution(script_path, True, message)
                 
         except Exception as e:
