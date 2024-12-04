@@ -11,8 +11,12 @@ import ubinascii
 
 def format_time(timestamp):
     """UNIXタイムスタンプを読みやすい形式に変換"""
-    t = time.localtime(timestamp)
-    return f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
+    try:
+        # timestampをintに変換してからlocaltime()を使用
+        t = time.localtime(int(timestamp))
+        return f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
+    except Exception as e:
+        return f"Invalid time ({timestamp})"
 
 def format_duration(seconds):
     """秒数を読みやすい時間表記に変換"""
@@ -63,53 +67,64 @@ def load_script_states():
     """ファイルから実行状態を読み込む"""
     print(f"\nChecking if {STATE_FILE} exists...")
     try:
-        # ファイルが存在するか確認
         os.stat(STATE_FILE)
         print(f"{STATE_FILE} found, loading states...")
         
-        states = {}
         try:
             with open(STATE_FILE, "r") as f:
-                lines = f.readlines()  # 全行を一度に読み込む
-                
+                lines = f.readlines()
                 if not lines:
                     print("State file is empty, using default states")
                     return get_default_states()
                 
+                states = {}
                 for line in lines:
                     try:
-                        path, interval, last_run, last_status = line.strip().split(",")
-                        last_run_float = float(last_run)
-                        print(f"Script: {path}, Last run: {format_time(last_run_float)}")
-                        states[path] = {
-                            "interval": int(interval),
-                            "last_run": last_run_float,
-                            "last_status": last_status.lower() == "true"
-                        }
-                    except (ValueError, IndexError) as e:
-                        print(f"Error parsing line: {line.strip()}, Error: {e}")
+                        parts = line.strip().split(",")
+                        if len(parts) != 4:
+                            print(f"Invalid line format: {line.strip()}")
+                            continue
+                            
+                        path, interval_str, last_run_str, status_str = parts
+                        
+                        # 各値の変換を個別に試行
+                        try:
+                            interval = int(interval_str)
+                            last_run = float(last_run_str)
+                            status = status_str.lower() == "true"
+                            
+                            states[path] = {
+                                "interval": interval,
+                                "last_run": last_run,
+                                "last_status": status
+                            }
+                            print(f"Loaded state for {path}:")
+                            print(f"  Last run: {format_time(last_run)}")
+                            print(f"  Interval: {format_duration(interval)}")
+                            print(f"  Status: {status}")
+                            
+                        except (ValueError, TypeError) as e:
+                            print(f"Value conversion error for {path}: {e}")
+                            continue
+                            
+                    except Exception as e:
+                        print(f"Line parsing error: {line.strip()}, {str(e)}")
                         continue
                 
-                if not states:
-                    print("No valid states loaded, using default states")
-                    return get_default_states()
+                if states:
+                    return states
                 
-                print("Successfully loaded states:")
-                for path, state in states.items():
-                    print(f"  {path}:")
-                    print(f"    Interval: {format_duration(state['interval'])}")
-                    print(f"    Last run: {format_time(state['last_run'])}")
-                    print(f"    Status: {state['last_status']}")
-                return states
+                print("No valid states loaded, using default states")
+                return get_default_states()
                 
         except Exception as e:
-            print(f"Error reading {STATE_FILE}: {e}")
+            print(f"File reading error: {e}")
             return get_default_states()
             
     except OSError:
         print(f"{STATE_FILE} not found, using default states")
         return get_default_states()
-
+    
 def save_script_states(states):
     """実行状態をファイルに保存"""
     try:
