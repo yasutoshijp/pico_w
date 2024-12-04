@@ -12,7 +12,6 @@ import ubinascii
 def format_time(timestamp):
     """UNIXタイムスタンプを読みやすい形式に変換"""
     try:
-        # timestampをintに変換してからlocaltime()を使用
         t = time.localtime(int(timestamp))
         return f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
     except Exception as e:
@@ -30,6 +29,13 @@ def format_duration(seconds):
         hours = seconds // 3600
         remaining_minutes = (seconds % 3600) // 60
         return f"{int(hours)}時間{int(remaining_minutes)}分"
+
+def is_valid_time():
+    """システム時刻が有効かチェック（2022年以降を有効とする）"""
+    try:
+        return time.localtime()[0] >= 2022
+    except:
+        return False
 
 # BME280クラスをグローバルに定義
 try:
@@ -55,7 +61,7 @@ LOG_FILE = "script_logs.txt"
 
 def get_default_states():
     """デフォルトの状態を返す"""
-    current_time = time.time()  # 現在時刻を取得
+    current_time = time.time()
     default_states = {
         "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": current_time, "last_status": True},  # 15分
         "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": current_time, "last_status": True},  # 3分
@@ -92,6 +98,11 @@ def load_script_states():
                             interval = int(interval_str)
                             last_run = float(last_run_str)
                             status = status_str.lower() == "true"
+
+                            # 時刻が無効な場合は現在時刻を使用
+                            if not is_valid_time():
+                                print("警告: システム時刻が不正です。実行時刻を調整します。")
+                                last_run = time.time()
                             
                             states[path] = {
                                 "interval": interval,
@@ -124,7 +135,7 @@ def load_script_states():
     except OSError:
         print(f"{STATE_FILE} not found, using default states")
         return get_default_states()
-    
+
 def save_script_states(states):
     """実行状態をファイルに保存"""
     try:
@@ -229,6 +240,10 @@ def run(wlan):
     print("\n=== Starting git_main.py execution ===")
     print("Loading script states...")
 
+    # システム時刻の確認
+    if not is_valid_time():
+        print("警告: システム時刻が不正です。実行判断を調整します。")
+
     script_states = load_script_states()
     now = time.time()
     
@@ -241,14 +256,19 @@ def run(wlan):
         print(f"Last status: {state['last_status']}")
         
         try:
-            time_since_last_run = now - state['last_run']
-            should_run = (not state['last_status']) or (time_since_last_run >= state['interval'])
-            
-            if should_run:
+            # 時刻が無効な場合は強制実行を検討
+            if not is_valid_time():
+                should_run = True
+                reason = "システム時刻が不正なため強制実行"
+            else:
+                time_since_last_run = now - state['last_run']
+                should_run = (not state['last_status']) or (time_since_last_run >= state['interval'])
                 if not state['last_status']:
                     reason = "前回失敗のため再実行"
                 else:
                     reason = f"インターバル経過 (経過時間: {format_duration(time_since_last_run)})"
+            
+            if should_run:
                 print(f"実行理由: {reason}")
                 
                 # スクリプトの存在確認
@@ -260,7 +280,6 @@ def run(wlan):
                     continue
                 
                 # スクリプト実行
-
                 execution_success = execute_script(script_path, wlan)
                 
                 # 状態の更新
@@ -270,7 +289,7 @@ def run(wlan):
                     log_execution(script_path, True, f"実行完了 ({reason})")
                 else:
                     log_execution(script_path, False, f"実行失敗 ({reason})")
-
+                
                 # 状態の保存
                 save_script_states(script_states)
                 print(f"Updated state for {script_path}: Success={execution_success}")
