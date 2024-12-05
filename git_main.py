@@ -9,6 +9,7 @@ import urequests
 import io
 import ubinascii
 
+
 def format_time(timestamp):
     """UNIXタイムスタンプを読みやすい形式に変換"""
     try:
