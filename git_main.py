@@ -10,17 +10,22 @@ import io
 import ubinascii
 import ntptime
 
+# グローバル変数を明示
+ntp_synced = False
+
 def sync_ntp_time(logger):
-    """NTP同期を試行"""
+    global ntp_synced
     try:
         logger.log("NTP時刻同期を開始...")
         ntptime.timeout = 5
         ntptime.settime()
+        ntp_synced = True
         t = time.localtime()
         logger.log(f"NTP同期成功: {t[0]}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d} (JST)")
         return True
     except Exception as e:
         logger.log(f"NTP同期失敗: {e}")
+        ntp_synced = False
         return False
 
 
@@ -105,76 +110,40 @@ def get_default_states():
     return default_states
 
 
-
 def load_script_states():
-    """ファイルから実行状態を読み込む"""
     print(f"\nChecking if {STATE_FILE} exists...")
     try:
         os.stat(STATE_FILE)
         print(f"{STATE_FILE} found, loading states...")
-
-        try:
-            with open(STATE_FILE, "r") as f:
-                lines = f.readlines()
-                if not lines:
-                    print("State file is empty, using default states")
-                    return get_default_states()
-
-                states = {}
-                for line in lines:
-                    try:
-                        parts = line.strip().split(",")
-                        if len(parts) != 4:
-                            print(f"Invalid line format: {line.strip()}")
-                            continue
-
-                        path, interval_str, last_run_str, status_str = parts
-
-                        # 各値の変換
-                        interval = int(interval_str)
-                        last_run = parse_jst_time(last_run_str) if last_run_str != "None" else None
-                        status = status_str.lower() == "true"
-
-                        states[path] = {
-                            "interval": interval,
-                            "last_run": last_run,
-                            "last_status": status,
-                        }
-                        print(f"Loaded state for {path}:")
-                        print(f"  Last run: {last_run_str if last_run else '未設定'}")
-                        print(f"  Interval: {format_duration(interval)}")
-                        print(f"  Status: {status}")
-
-                    except (ValueError, TypeError) as e:
-                        print(f"Value conversion error for {line.strip()}: {e}")
-                        continue
-
-                if states:
-                    return states
-
-                print("No valid states loaded, using default states")
-                return get_default_states()
-
-        except Exception as e:
-            print(f"File reading error: {e}")
-            return get_default_states()
-
+        with open(STATE_FILE, "r") as f:
+            lines = f.readlines()
+            states = {}
+            for line in lines:
+                parts = line.strip().split(",")
+                if len(parts) != 4:
+                    print(f"Invalid line format: {line.strip()}")
+                    continue
+                path, interval_str, last_run_str, status_str = parts
+                try:
+                    interval = int(interval_str)
+                    last_run = parse_jst_time(last_run_str) if last_run_str != "None" else None
+                    status = status_str.lower() == "true"
+                    states[path] = {"interval": interval, "last_run": last_run, "last_status": status}
+                except Exception as e:
+                    print(f"Error parsing line: {line.strip()} ({e})")
+            return states
     except OSError:
         print(f"{STATE_FILE} not found, using default states")
         return get_default_states()
 
 
 def save_script_states(states):
-    """実行状態をファイルに保存"""
     try:
         temp_file = STATE_FILE + ".tmp"
         with open(temp_file, "w") as f:
             for path, state in states.items():
-                # NTP同期状態に応じて保存形式を変更
-                if ntp_synced:
-                    last_run_str = format_jst_time(state['last_run']) if state['last_run'] else "None"
-                else:
-                    last_run_str = "NTP未同期"  # 未同期の場合の代替表記
+                # `last_run`を常にタイムスタンプ形式で保存
+                last_run_str = format_jst_time(state['last_run']) if state['last_run'] else "None"
                 line = f"{path},{state['interval']},{last_run_str},{state['last_status']}\n"
                 f.write(line)
 
@@ -292,6 +261,7 @@ def run(wlan):
             execution_success = execute_script(script_path, wlan)
             state["last_status"] = execution_success
             state["last_run"] = now  # 実行後の更新
+            print(f"★Updated state: {state}")  # 確認用出力
             print(f"スクリプト実行結果: {execution_success}")
         else:
             print(f"スクリプト {script_path} をスキップします")
@@ -303,4 +273,5 @@ def run(wlan):
 if __name__ == "__main__":
     wlan = None  # wlanは実際の環境で設定
     run(wlan)
+
 
