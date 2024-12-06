@@ -9,6 +9,19 @@ import urequests
 import io
 import ubinascii
 
+def sync_ntp_time(logger):
+    """NTP同期を試行"""
+    try:
+        logger.log("NTP時刻同期を開始...")
+        ntptime.timeout = 5
+        ntptime.settime()
+        t = time.localtime()
+        logger.log(f"NTP同期成功: {t[0]}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d} (JST)")
+        return True
+    except Exception as e:
+        logger.log(f"NTP同期失敗: {e}")
+        return False
+
 
 def get_current_jst_time():
     """現在の日本時間を取得（UNIXタイム形式）"""
@@ -156,25 +169,18 @@ def save_script_states(states):
         temp_file = STATE_FILE + ".tmp"
         with open(temp_file, "w") as f:
             for path, state in states.items():
-                last_run_str = format_jst_time(state['last_run']) if state['last_run'] else "None"
+                # NTP同期状態に応じて保存形式を変更
+                if ntp_synced:
+                    last_run_str = format_jst_time(state['last_run']) if state['last_run'] else "None"
+                else:
+                    last_run_str = "NTP未同期"  # 未同期の場合の代替表記
                 line = f"{path},{state['interval']},{last_run_str},{state['last_status']}\n"
                 f.write(line)
 
-        try:
-            os.remove(STATE_FILE)  # 既存ファイルを削除
-        except OSError:
-            pass  # ファイルが存在しない場合は無視
-
         os.rename(temp_file, STATE_FILE)
         print(f"Successfully saved states to {STATE_FILE}")
-
     except Exception as e:
         print(f"Error saving states: {e}")
-        try:
-            os.remove(temp_file)
-        except:
-            pass
-
 
 def log_execution(script_path, status, message=""):
     """スクリプトの実行ログを記録"""
@@ -251,51 +257,47 @@ def execute_script(script_path, wlan):
 def run(wlan):
     """メインの実行関数"""
     print("\n=== Starting main loop ===")
-    print("Loading script states...")
-
-    # 状態ファイルの読み込み
     script_states = load_script_states()
     now = time.time()  # 現在時刻（UTC）
 
-    print(f"\nCurrent time: {format_jst_time(now)}")
+    # NTP同期を試行
+    ntp_synced = sync_ntp_time(logger)
+    print(f"NTP同期状態: {'成功' if ntp_synced else '失敗'}")
 
     for script_path, state in script_states.items():
         print(f"\nProcessing script: {script_path}")
         
-        # `last_run`の処理を修正
+        # 時刻チェックをスキップする場合
+        if not ntp_synced:
+            print(f"警告: NTP同期に失敗したため、時刻チェックをスキップしてスクリプトを実行します。")
+            execute_script(script_path, wlan)
+            continue
+
+        # 時刻チェックを行う場合
         last_run = state.get("last_run")
         if last_run is None:
             print(f"警告: {script_path} の last_run が未設定です。現在時刻を代わりに使用します。")
-            last_run = now  # 現在時刻を代入してエラーを回避
+            last_run = now
         
-        # 実行間隔の計算
-        try:
-            time_since_last_run = now - last_run
-            should_run = (not state["last_status"]) or (time_since_last_run >= state["interval"])
-            print(f"Last run: {format_jst_time(last_run)}")
-            print(f"Time since last run: {format_duration(time_since_last_run)}")
-            print(f"Should run: {should_run}")
-        except Exception as e:
-            print(f"エラー: {script_path} の実行間隔計算に失敗しました: {e}")
-            continue
+        time_since_last_run = now - last_run
+        should_run = (not state["last_status"]) or (time_since_last_run >= state["interval"])
+        
+        print(f"Last run (JST): {format_jst_time(last_run)}")
+        print(f"Time since last run: {format_duration(time_since_last_run)}")
+        print(f"Should run: {should_run}")
 
-        # 実行条件を満たしている場合の処理
         if should_run:
             print(f"実行中: {script_path}")
-            try:
-                execution_success = execute_script(script_path, wlan)
-                state["last_status"] = execution_success
-                state["last_run"] = now
-                print(f"スクリプト実行結果: {execution_success}")
-            except Exception as e:
-                print(f"スクリプト実行中にエラーが発生: {e}")
+            execution_success = execute_script(script_path, wlan)
+            state["last_status"] = execution_success
+            state["last_run"] = now  # 実行後の更新
+            print(f"スクリプト実行結果: {execution_success}")
         else:
             print(f"スクリプト {script_path} をスキップします")
-    
+
     # 状態を保存
     save_script_states(script_states)
     print("\n=== Completed main loop ===")
-
 
 if __name__ == "__main__":
     wlan = None  # wlanは実際の環境で設定
