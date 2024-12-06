@@ -3,6 +3,15 @@ import network
 import time
 import urequests
 import gc
+import sys
+# 必要なパスを確認し追加
+REMOTE_CODE_PATH = "/remote_code"
+LIB_PATH = f"{REMOTE_CODE_PATH}/lib"
+if REMOTE_CODE_PATH not in sys.path:
+    sys.path.append(REMOTE_CODE_PATH)
+if LIB_PATH not in sys.path:
+    sys.path.append(LIB_PATH)
+
 from bme280 import BME280
 
 # デバッグモード
@@ -194,3 +203,4 @@ try:
     main()
 except Exception as e:
     debug_print(f"致命的エラー: {e}")
+
