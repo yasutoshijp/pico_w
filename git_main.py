@@ -1,345 +1,275 @@
-import wifi_manager
-import github_manager
-import captive_portal
-import blink_led
 import sys
-import machine
 import time
 import json
 import os
-import ntptime
+import machine
+import gc
 import network
-# 定数
-MAIN_LOOP_INTERVAL = 300  # 5分（秒）
-SLEEP_TIME_ON_FAILURE = 3600  # 1時間（秒）
+import urequests
+import io
+import ubinascii
+import ntptime
 
-class LogWriter:
-    def __init__(self, enable_logging=False, log_dir="/logs", keep_days=2):
-        self.enable_logging = enable_logging
-        self.log_dir = log_dir
-        self.keep_days = keep_days
-        self.log_buffer = []
-        self._last_save_time = 0
-        self._ensure_log_directory()
-        
-    def _ensure_log_directory(self):
-        try:
-            if not os.path.exists(self.log_dir):
-                os.mkdir(self.log_dir)
-        except Exception as e:
-            print(f"Warning: Failed to create log directory: {e}")
-    
-    def _get_log_filename(self):
-        """現在の日付に基づくログファイル名を取得"""
-        t = time.localtime()
-        date_str = f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d}"
-        return f"{self.log_dir}/{date_str}_system.log"
-    
-    def _clean_old_logs(self):
-        """古いログファイルを削除"""
-        try:
-            files = os.listdir(self.log_dir)
-            files = [f for f in files if f.endswith("_system.log")]
-            files.sort()  # 日付順にソート
-            if len(files) > self.keep_days:
-                for f in files[:-self.keep_days]:  # 最新2日分を残す
-                    os.remove(f"{self.log_dir}/{f}")
-                    print(f"Deleted old log file: {f}")
-        except Exception as e:
-            print(f"Failed to clean old logs: {e}")
-    
-    def log(self, message):
-        if self.enable_logging:
-            print(message)
-            self.log_buffer.append(message)
-            # バッファが一定量たまったら自動保存
-            if len(self.log_buffer) > 50:
-                self.save_logs()
-    
-    def save_logs(self):
-        if not self.enable_logging or not self.log_buffer:
-            return
-            
-        try:
-            # 現在時刻を取得
-            t = time.localtime()
-            time_str = f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
-            
-            # ログファイル名を動的に決定
-            log_filename = self._get_log_filename()
-            
-            # ログエントリーの開始部分を書き込み
-            with open(log_filename, "a") as f:
-                f.write("\n##################################################\n")
-                f.write(f"### Session: {time_str}\n")
-                f.write("### Mode: " + ("USB Connection" if t[0] < 2022 else "Normal Boot") + "\n")
-                f.write("##################################################\n\n")
-                
-                # ログメッセージを書き込み
-                for msg in self.log_buffer:
-                    f.write(f"{msg}\n")
-                
-                # ログエントリーの終了部分を書き込み
-                f.write("\n##################################################\n")
-                f.write("### End of Session\n")
-                f.write("##################################################\n")
-            
-            print(f"Log saved to {log_filename}")
-            self.log_buffer = []
-            self._last_save_time = time.time()
-            
-            # 古いログを削除
-            self._clean_old_logs()
-            
-        except Exception as e:
-            print(f"Error saving log: {e}")
-            # エラー時でもバッファをクリア
-            self.log_buffer = []
-    
-    def set_logging(self, enable):
-        self.enable_logging = enable
-        if enable:
-            self._ensure_log_directory()
-
-    def __del__(self):
-        """オブジェクトが破棄される際に残っているログを保存"""
-        if self.log_buffer:
-            self.save_logs()
-
-
-def merge_ssid_lists():
-    """優先度順にSSIDリストを統合"""
-    ssid_list = []
-    seen_pairs = set()  # (ssid, password)のペアを記録
-
-    # 1. captive_portalからの入力（最優先）
-    try:
-        with open('ssid.txt', 'r') as f:
-            for line in f:
-                ssid, password = line.strip().split(',')
-                pair = (ssid, password)
-                if pair not in seen_pairs:
-                    ssid_list.append({"ssid": ssid, "password": password})
-                    seen_pairs.add(pair)
-    except:
-        pass
-
-    # 2. GitHubからのリスト
-    try:
-        with open('/remote_code/ssid_list.txt', 'r') as f:
-            for line in f:
-                ssid, password = line.strip().split(',')
-                pair = (ssid, password)
-                if pair not in seen_pairs:
-                    ssid_list.append({"ssid": ssid, "password": password})
-                    seen_pairs.add(pair)
-    except:
-        pass
-
-    # 3. ハードコードされたリスト
-    hardcoded_list = [
-        {"ssid": "740635A8CCFD-2G", "password": "nn5rh49s5d7saa"},
-        {"ssid": "TP-Link_A208", "password": "15405173"},
-        {"ssid": "moonwalker", "password": "11112222"}
-    ]
-    for entry in hardcoded_list:
-        pair = (entry["ssid"], entry["password"])
-        if pair not in seen_pairs:
-            ssid_list.append(entry)
-            seen_pairs.add(pair)
-
-    return ssid_list
-
-def init_logger():
-    """ロガーの初期化"""
-    return LogWriter(enable_logging=True)
-
-# グローバル変数として宣言
+# グローバル変数
 ntp_synced = False
+system_time_offset = 0
+
 def sync_ntp_time(logger):
-    """NTP同期を試行（IPアドレス使用版）"""
-    import ntptime
+    global ntp_synced, system_time_offset
     try:
         logger.log("NTP時刻同期を開始...")
-        ntptime.host = "216.239.35.0"  # GoogleのNTPサーバーのIP
+        ntptime.host = "216.239.35.0"
         ntptime.timeout = 5
         ntptime.settime()
-        t = time.localtime(time.time() + 9 * 60 * 60)  # JSTに変換
+        system_time_offset = 0
+        ntp_synced = True
+        t = time.localtime(time.time() + 9 * 60 * 60)
         logger.log(f"NTP同期成功: {t[0]}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d} (JST)")
         return True
     except Exception as e:
         logger.log(f"NTP同期失敗: {str(e)}")
+        ntp_synced = False
+        system_time_offset += 5 * 60
         return False
 
+def get_current_time():
+    """現在の時刻（NTP同期状態に基づく）"""
+    if ntp_synced:
+        return time.time()
+    else:
+        # システム時刻にオフセットを加えて推定時刻を返す
+        return time.time() + system_time_offset
 
-def handle_network_connection(logger):
-    """WiFi接続とNTP同期を処理"""
-    import usocket as socket
+def format_time(timestamp):
+    """UNIXタイムスタンプを読みやすいUTC形式に変換"""
     try:
-        # 統合されたSSIDリストを取得
-        merged_ssid_list = merge_ssid_lists()
-        connected = wifi_manager.connect_wifi(merged_ssid_list)
-        logger.log(f"WiFi接続結果: {connected}")
-        
-        if not connected:
-            logger.log("WiFi接続失敗、キャプティブポータルを起動します...")
-            
-            # LED点滅開始
-            blink_led.led.start_blink(0.5, 0.5)
-            
-            # キャプティブポータルを実行
-            portal_result = captive_portal.start_portal()
-            
-            # LED点滅停止
-            blink_led.led.stop_blink()
-            
-            if portal_result:
-                logger.log("新しいSSIDが登録されました。再接続を試みます...")
-                return handle_network_connection(logger)  # 再試行
-            else:
-                logger.log("キャプティブポータルでのSSID登録がタイムアウトしました")
-                logger.log(f"{SLEEP_TIME_ON_FAILURE//3600}時間スリープします...")
-                time.sleep(SLEEP_TIME_ON_FAILURE)
-                return False
-                
-        # WiFi接続成功後のDNS解決確認
-        logger.log("DNS解決をテストします...")
-        try:
-            addr = socket.getaddrinfo("pool.ntp.org", 123)
-            logger.log(f"DNS解決成功: {addr[0]}")
-        except Exception as e:
-            logger.log(f"DNS解決に失敗しました: {e}")
-        
-        # 接続成功時のNTP同期
-        if connected:
-            if sync_ntp_time(logger):
-                logger.log("ネットワーク初期化完了（時刻同期成功）")
-            else:
-                logger.log("WiFi接続成功、ただし時刻同期失敗")
-        
-        return connected
-        
-    except Exception as e:
-        logger.log(f"ネットワーク接続エラー: {str(e)}")
+        t = time.localtime(int(timestamp))
+        return f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
+    except Exception:
+        return f"Invalid time ({timestamp})"
+
+def get_current_jst_time():
+    """現在の日本時間を取得（UNIXタイム形式）"""
+    return time.time() + 9 * 60 * 60  # UTC + 9時間
+
+def format_jst_time(timestamp):
+    """UNIXタイムスタンプを日本時間のyyyy/mm/dd hh:mm:ss形式に変換（表示用）"""
+    t = time.localtime(timestamp + 9 * 60 * 60)  # JST（UTC+9）に変換
+    return "{:04d}/{:02d}/{:02d} {:02d}:{:02d}:{:02d}".format(t[0], t[1], t[2], t[3], t[4], t[5])
+
+def format_duration(seconds):
+    """秒数を読みやすい時間表記に変換"""
+    if seconds < 60:
+        return f"{int(seconds)}秒"
+    elif seconds < 3600:
+        minutes = seconds // 60
+        remaining_seconds = seconds % 60
+        return f"{int(minutes)}分{int(remaining_seconds)}秒"
+    else:
+        hours = seconds // 3600
+        remaining_minutes = (seconds % 3600) // 60
+        return f"{int(hours)}時間{int(remaining_minutes)}分"
+
+def is_valid_time():
+    """システム時刻が有効かチェック（2022年以降を有効とする）"""
+    try:
+        return time.localtime()[0] >= 2022
+    except:
         return False
 
+# BME280クラスをグローバルに定義
+try:
+    with open('/remote_code/lib/bme280.py', 'r') as f:
+        bme280_code = f.read()
+        # モジュールの名前空間を作成
+        module_namespace = {
+            '__name__': 'bme280',
+            'machine': machine,
+            'time': time
+        }
+        exec(bme280_code, module_namespace)
+        # グローバル空間にBME280クラスを追加
+        BME280 = module_namespace['BME280']
+        sys.modules['bme280'] = type('Module', (), {'BME280': BME280})
+    print("BME280 module loaded successfully")
+except Exception as e:
+    print(f"Error loading BME280 module: {e}")
 
-# 必要なパスを確認し追加
-REMOTE_CODE_PATH = "/remote_code"
-LIB_PATH = f"{REMOTE_CODE_PATH}/lib"
-if REMOTE_CODE_PATH not in sys.path:
-    sys.path.append(REMOTE_CODE_PATH)
-if LIB_PATH not in sys.path:
-    sys.path.append(LIB_PATH)
-    
-def main():
-    logger = init_logger()
-    
-    while True:  # メインループ
-        try:
-            logger.log("\n=== Starting main loop ===")
-            
-            # 時刻状態の確認
-            current_year = time.localtime()[0]
-            if current_year < 2022:
-                logger.log(f"警告: システム時刻が不正です（{current_year}年）")
-            
-            # ネットワーク接続処理
-            if not handle_network_connection(logger):
-                logger.log("ネットワーク接続失敗。次回ループまで待機します...")
-                logger.log("ネットワーク診断を開始します...")
-                network_diagnostics(logger)  # ネットワーク診断を追加
-                logger.save_logs()
-                logger.log(f"\n=== Waiting for {MAIN_LOOP_INTERVAL} seconds before retry ===")
-                time.sleep(MAIN_LOOP_INTERVAL)
-                continue
+# 状態ファイルとログファイルのパス
+STATE_FILE = "script_states.txt"
+LOG_FILE = "script_logs.txt"
 
-            # GitHubからのコード取得
-            logger.log("GitHubの更新を確認します...")
-            try:
-                if github_manager.fetch_from_github():
-                    logger.log("GitHub処理が完了しました")
-                else:
-                    logger.log("GitHub処理に失敗しましたが、処理を続行します")
-            except Exception as e:
-                logger.log(f"GitHub処理中に例外が発生しましたが、続行します: {str(e)}")
+def get_default_states():
+    """デフォルトの状態を返す（last_runはUTCで記録）"""
+    current_time = time.time()  # UTC
+    default_states = {
+        "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": current_time, "last_status": True},  # 15分
+        "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": current_time, "last_status": True},  # 3分
+    }
+    print(f"Using default states with current UTC time: {format_time(current_time)}")
+    return default_states
 
-            # git_main.py の実行
-            logger.log("\ngit_main.py を実行します...")
-            git_main_path = "/remote_code/git_main.py"
-            try:
-                os.stat(git_main_path)  # ファイルの存在確認
-                logger.log(f"スクリプトファイルを確認: {git_main_path}")
-                with open(git_main_path, 'r') as f:
-                    content = f.read()
-                    logger.log(f"Script content length: {len(content)} bytes")
-                
-                logger.log("=== Starting git_main.py execution ===")
-                global_vars = {
-                    'wlan': None,
-                    '__name__': '__main__',
-                    'print': lambda x: logger.log(str(x)),  # printをlogger.logにリダイレクト
-                    'time': time,
-                    'sys': sys,
-                    'machine': machine,
-                    'logger': logger  # loggerを渡す
-                }
+def load_script_states():
+    print(f"\nChecking if {STATE_FILE} exists...")
+    try:
+        os.stat(STATE_FILE)
+        print(f"{STATE_FILE} found, loading states...")
+        with open(STATE_FILE, "r") as f:
+            lines = f.readlines()
+            states = {}
+            for line in lines:
+                parts = line.strip().split(",")
+                if len(parts) != 4:
+                    print(f"Invalid line format: {line.strip()}")
+                    continue
+                path, interval_str, last_run_str, status_str = parts
                 try:
-                    github_manager.safe_execute_script(git_main_path, global_vars)
-                    logger.log("=== Completed git_main.py execution ===")
+                    interval = int(interval_str)
+                    if last_run_str.lower() == "none":
+                        last_run = None
+                    else:
+                        # UTCエポック秒としてパース
+                        last_run = float(last_run_str)
+                    status = status_str.lower() == "true"
+                    states[path] = {"interval": interval, "last_run": last_run, "last_status": status}
                 except Exception as e:
-                    logger.log(f"スクリプト実行中に例外が発生: {str(e)}")
-            except OSError as e:
-                logger.log(f"git_main.py が見つかりませんでした: {str(e)}")
-            except Exception as e:
-                logger.log(f"予期せぬエラーが発生: {str(e)}")
+                    print(f"Error parsing line: {line.strip()} ({e})")
+            return states
+    except OSError:
+        print(f"{STATE_FILE} not found, using default states")
+        return get_default_states()
 
-            logger.save_logs()
-            logger.log(f"\n=== Sleeping for {MAIN_LOOP_INTERVAL} seconds ===")
-            time.sleep(MAIN_LOOP_INTERVAL)
-
-        except Exception as e:
-            error_message = f"Fatal error: {e}"
-            logger.log(error_message)
-            import io
-            output = io.StringIO()
-            sys.print_exception(e, output)
-            error_details = output.getvalue()
-            logger.log(f"Details: {error_details}")
-            logger.save_logs()
-            time.sleep(3)
-            machine.reset()
-
-def network_diagnostics(logger, retry_count=3):
-    """ネットワーク診断とリトライ"""
-    import usocket as socket
-    logger.log("\n=== ネットワーク診断 ===")
-    success = False
-    for attempt in range(retry_count):
-        try:
-            logger.log(f"DNS解決をテストします...（試行 {attempt + 1}/{retry_count}）")
-            addr = socket.getaddrinfo("pool.ntp.org", 123)
-            logger.log(f"DNS解決成功: {addr[0]}")
-            success = True
-            break
-        except OSError as e:
-            if e.args[0] == -2:
-                logger.log("DNS解決失敗: DNSサーバーが不明か、到達不可")
-            else:
-                logger.log(f"DNS解決失敗: {e}")
-            time.sleep(2)  # リトライ前に待機
-
-    if not success:
-        logger.log("DNS解決に失敗しました。DNS設定を確認してください。")
-
+def save_script_states(states):
     try:
-        logger.log("NTPサーバーへの接続をテストします...")
-        addr = socket.getaddrinfo("time.google.com", 123)
-        logger.log(f"NTPサーバーへの接続成功: {addr[0]}")
+        temp_file = STATE_FILE + ".tmp"
+        with open(temp_file, "w") as f:
+            for path, state in states.items():
+                # UTCエポック秒をそのまま文字列化
+                last_run_str = str(state['last_run']) if state['last_run'] is not None else "None"
+                line = f"{path},{state['interval']},{last_run_str},{state['last_status']}\n"
+                print(f"★★Writing line: {line.strip()}")  # 確認用出力
+                f.write(line)
+        os.rename(temp_file, STATE_FILE)
+        print(f"★★States saved successfully to {STATE_FILE}")  # 確認用出力
     except Exception as e:
-        logger.log(f"NTPサーバーへの接続失敗: {e}")
+        print(f"Error saving states: {e}")
 
+def log_execution(script_path, status, message=""):
+    """スクリプトの実行ログを記録"""
+    try:
+        current_time = time.time()  # UTC
+        formatted_time = format_time(current_time)  # UTC時刻を表示用フォーマット
+        log_entry = f"[{formatted_time}] {script_path} - Status: {'Success' if status else 'Failed'}"
+        if message:
+            log_entry += f" - {message}"
+        
+        # 一時ファイルを使用してログを書き込む
+        temp_log = LOG_FILE + ".tmp"
+        with open(temp_log, "w") as f:
+            f.write(log_entry + "\n")
+            
+        # 既存のログファイルとマージ
+        try:
+            with open(LOG_FILE, "r") as old_f:
+                with open(temp_log, "a") as new_f:
+                    new_f.write(old_f.read())
+        except OSError:
+            pass  # 既存ログが存在しない場合は無視
+            
+        os.rename(temp_log, LOG_FILE)
+        print(f"Logged execution: {log_entry}")
+        
+    except Exception as e:
+        print(f"Error writing log: {e}")
+        try:
+            os.remove(temp_log)
+        except:
+            pass
+def execute_script(script_path, wlan, logger):
+    logger.log(f"\n=== Executing {script_path} ===")
+    try:
+        logger.log("Reading script file...")
+        with open(script_path, "r") as script_file:
+            code = script_file.read()
+            logger.log(f"Loaded {len(code)} bytes of code")
+            
+            globals_dict = {
+                'wlan': wlan,
+                'machine': machine,
+                'Pin': machine.Pin,
+                'I2C': machine.I2C,
+                'gc': gc,
+                'network': network,
+                'time': time,
+                'os': os,
+                'urequests': urequests,
+                'json': json,
+                'io': io,
+                'sys': sys,
+                'ubinascii': ubinascii,
+                'BME280': BME280,
+                'bme280': sys.modules['bme280'],
+                'logger': logger  # loggerを渡す
+            }
+            
+            logger.log(f"Starting execution with globals: {list(globals_dict.keys())}")
+            exec(code, globals_dict)
+            
+        logger.log(f"Successfully executed: {script_path}")
+        return True
+        
+    except Exception as e:
+        logger.log(f"Error executing script {script_path}: {e}")
+        sys.print_exception(e)
+        return False
 
+def run(wlan, logger):
+    global ntp_synced, system_time_offset
+    logger.log("\n=== Starting main loop ===")
+    script_states = load_script_states()
+    now = time.time()
+
+    ntp_synced = sync_ntp_time(logger)
+    logger.log(f"NTP同期状態: {'成功' if ntp_synced else '失敗'}")
+
+    for script_path, state in script_states.items():
+        logger.log(f"\nProcessing script: {script_path}")
+        
+        if not ntp_synced:
+            logger.log("警告: NTP同期に失敗したため、時刻チェックをスキップしてスクリプトを実行します。")
+            execute_script(script_path, wlan, logger)
+            continue
+
+        last_run = state.get("last_run")
+        if last_run is None:
+            logger.log(f"警告: {script_path} の last_run が未設定です。現在のUTC時刻を使用します。")
+            last_run = now
+            state["last_run"] = now
+
+        time_since_last_run = now - last_run
+        should_run = (not state["last_status"]) or (time_since_last_run >= state["interval"])
+        
+        logger.log(f"Last run (JST): {format_jst_time(last_run)}")
+        logger.log(f"Time since last run: {format_duration(time_since_last_run)}")
+        logger.log(f"Should run: {should_run}")
+
+        if should_run:
+            logger.log(f"実行中: {script_path}")
+            execution_success = execute_script(script_path, wlan, logger)
+            state["last_status"] = execution_success
+            state["last_run"] = now if ntp_synced else last_run + state["interval"]
+            logger.log(f"★Updated state: {state}")
+            logger.log(f"スクリプト実行結果: {execution_success}")
+        else:
+            logger.log(f"スクリプト {script_path} をスキップします")
+
+    save_script_states(script_states)
+    logger.log("\n=== Completed main loop ===")
 
 if __name__ == "__main__":
-    main()
+    class DummyLogger:
+        def log(self, msg):
+            print(msg)
+    logger = DummyLogger()
+    wlan = None
+    run(wlan, logger)
