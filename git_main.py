@@ -8,6 +8,7 @@ import network
 import urequests
 import io
 import ubinascii
+import ntptime
 
 def sync_ntp_time(logger):
     """NTP同期を試行"""
