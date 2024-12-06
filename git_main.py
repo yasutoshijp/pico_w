@@ -187,14 +187,13 @@ def log_execution(script_path, status, message=""):
             os.remove(temp_log)
         except:
             pass
-def execute_script(script_path, wlan):
-    """スクリプトを実行"""
-    print(f"\n=== Executing {script_path} ===")
+def execute_script(script_path, wlan, logger):  # loggerパラメータを追加
+    logger.log(f"\n=== Executing {script_path} ===")
     try:
-        print(f"Reading script file...")
+        logger.log("Reading script file...")
         with open(script_path, "r") as script_file:
             code = script_file.read()
-            print(f"Loaded {len(code)} bytes of code")
+            logger.log(f"Loaded {len(code)} bytes of code")
             
             globals_dict = {
                 'wlan': wlan,
@@ -212,17 +211,17 @@ def execute_script(script_path, wlan):
                 'ubinascii': ubinascii,
                 'BME280': BME280,
                 'bme280': sys.modules['bme280'],
-                'logger': logger  # これを追加
+                'logger': logger  # loggerを追加
             }
             
-            print(f"Starting execution with globals: {list(globals_dict.keys())}")
+            logger.log(f"Starting execution with globals: {list(globals_dict.keys())}")
             exec(code, globals_dict)
             
-        print(f"Successfully executed: {script_path}")
+        logger.log(f"Successfully executed: {script_path}")
         return True
         
     except Exception as e:
-        print(f"Error executing script {script_path}: {e}")
+        logger.log(f"Error executing script {script_path}: {e}")
         sys.print_exception(e)
         return False
 
@@ -269,10 +268,11 @@ def run(wlan, logger):
     save_script_states(script_states)
     logger.log("\n=== Completed main loop ===")
 
-# メインループの実行を条件付きに
+# メインループの実行
 if __name__ == "__main__":
+    class DummyLogger:
+        def log(self, msg):
+            print(msg)
     wlan = None
-    run(wlan)
-else:
-    # モジュールとしてインポートされた場合は関数のみを提供
-    pass
+    logger = DummyLogger()
+    run(wlan, logger)  # loggerを渡す
