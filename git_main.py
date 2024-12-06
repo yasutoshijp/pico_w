@@ -10,6 +10,21 @@ import io
 import ubinascii
 
 
+from time import strftime, strptime, mktime
+
+def get_current_jst_time():
+    """現在の日本時間を取得（UNIXタイム形式）"""
+    return time.time() + 9 * 60 * 60  # UTC + 9時間
+
+def format_jst_time(timestamp):
+    """UNIXタイムスタンプを日本時間のyyyy/mm/dd hh:mm:ss形式に変換"""
+    return strftime("%Y/%m/%d %H:%M:%S", time.localtime(timestamp))
+
+def parse_jst_time(formatted_time):
+    """日本時間のyyyy/mm/dd hh:mm:ss形式をUNIXタイムスタンプに変換"""
+    return mktime(strptime(formatted_time, "%Y/%m/%d %H:%M:%S")) - 9 * 60 * 60
+
+
 def format_time(timestamp):
     """UNIXタイムスタンプを読みやすい形式に変換"""
     try:
@@ -61,13 +76,12 @@ STATE_FILE = "script_states.txt"
 LOG_FILE = "script_logs.txt"
 
 def get_default_states():
-    """デフォルトの状態を返す"""
-    current_time = time.time()
+    """デフォルトの状態を返す（時刻を気にせず実行）"""
     default_states = {
-        "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": current_time, "last_status": True},  # 15分
-        "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": current_time, "last_status": True},  # 3分
+        "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": None, "last_status": True},  # 実行時刻未設定
+        "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": None, "last_status": True},  # 実行時刻未設定
     }
-    print(f"Using default states with current time: {format_time(current_time)}")
+    print(f"Using default states: 時刻未設定")
     return default_states
 
 def load_script_states():
@@ -76,14 +90,14 @@ def load_script_states():
     try:
         os.stat(STATE_FILE)
         print(f"{STATE_FILE} found, loading states...")
-        
+
         try:
             with open(STATE_FILE, "r") as f:
                 lines = f.readlines()
                 if not lines:
                     print("State file is empty, using default states")
                     return get_default_states()
-                
+
                 states = {}
                 for line in lines:
                     try:
@@ -91,78 +105,68 @@ def load_script_states():
                         if len(parts) != 4:
                             print(f"Invalid line format: {line.strip()}")
                             continue
-                            
-                        path, interval_str, last_run_str, status_str = parts
-                        
-                        # 各値の変換を個別に試行
-                        try:
-                            interval = int(interval_str)
-                            last_run = float(last_run_str)
-                            status = status_str.lower() == "true"
 
-                            # 時刻が無効な場合は現在時刻を使用
-                            if not is_valid_time():
-                                print("警告: システム時刻が不正です。実行時刻を調整します。")
-                                last_run = time.time()
-                            
-                            states[path] = {
-                                "interval": interval,
-                                "last_run": last_run,
-                                "last_status": status
-                            }
-                            print(f"Loaded state for {path}:")
-                            print(f"  Last run: {format_time(last_run)}")
-                            print(f"  Interval: {format_duration(interval)}")
-                            print(f"  Status: {status}")
-                            
-                        except (ValueError, TypeError) as e:
-                            print(f"Value conversion error for {path}: {e}")
-                            continue
-                            
-                    except Exception as e:
-                        print(f"Line parsing error: {line.strip()}, {str(e)}")
+                        path, interval_str, last_run_str, status_str = parts
+
+                        # 各値の変換
+                        interval = int(interval_str)
+                        last_run = parse_jst_time(last_run_str) if last_run_str != "None" else None
+                        status = status_str.lower() == "true"
+
+                        states[path] = {
+                            "interval": interval,
+                            "last_run": last_run,
+                            "last_status": status,
+                        }
+                        print(f"Loaded state for {path}:")
+                        print(f"  Last run: {last_run_str if last_run else '未設定'}")
+                        print(f"  Interval: {format_duration(interval)}")
+                        print(f"  Status: {status}")
+
+                    except (ValueError, TypeError) as e:
+                        print(f"Value conversion error for {line.strip()}: {e}")
                         continue
-                
+
                 if states:
                     return states
-                
+
                 print("No valid states loaded, using default states")
                 return get_default_states()
-                
+
         except Exception as e:
             print(f"File reading error: {e}")
             return get_default_states()
-            
+
     except OSError:
         print(f"{STATE_FILE} not found, using default states")
         return get_default_states()
+
 
 def save_script_states(states):
     """実行状態をファイルに保存"""
     try:
         temp_file = STATE_FILE + ".tmp"
-        # まず一時ファイルに書き込む
         with open(temp_file, "w") as f:
             for path, state in states.items():
-                line = f"{path},{state['interval']},{state['last_run']},{state['last_status']}\n"
+                last_run_str = format_jst_time(state['last_run']) if state['last_run'] else "None"
+                line = f"{path},{state['interval']},{last_run_str},{state['last_status']}\n"
                 f.write(line)
-        
-        # 書き込みが成功したら、一時ファイルを本ファイルに rename
+
         try:
             os.remove(STATE_FILE)  # 既存ファイルを削除
         except OSError:
             pass  # ファイルが存在しない場合は無視
-            
+
         os.rename(temp_file, STATE_FILE)
         print(f"Successfully saved states to {STATE_FILE}")
-        
+
     except Exception as e:
         print(f"Error saving states: {e}")
-        # エラーが発生した場合は一時ファイルを削除
         try:
             os.remove(temp_file)
         except:
             pass
+
 
 def log_execution(script_path, status, message=""):
     """スクリプトの実行ログを記録"""
@@ -313,3 +317,4 @@ def run(wlan):
 if __name__ == "__main__":
     wlan = None  # wlanは実際の環境で設定
     run(wlan)
+
