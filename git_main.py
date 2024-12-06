@@ -10,7 +10,6 @@ import io
 import ubinascii
 
 
-from time import strftime, strptime, mktime
 
 def get_current_jst_time():
     """現在の日本時間を取得（UNIXタイム形式）"""
@@ -18,11 +17,19 @@ def get_current_jst_time():
 
 def format_jst_time(timestamp):
     """UNIXタイムスタンプを日本時間のyyyy/mm/dd hh:mm:ss形式に変換"""
-    return strftime("%Y/%m/%d %H:%M:%S", time.localtime(timestamp))
+    t = time.localtime(timestamp + 9 * 60 * 60)  # JST（UTC+9）に変換
+    return "{:04d}/{:02d}/{:02d} {:02d}:{:02d}:{:02d}".format(t[0], t[1], t[2], t[3], t[4], t[5])
 
 def parse_jst_time(formatted_time):
     """日本時間のyyyy/mm/dd hh:mm:ss形式をUNIXタイムスタンプに変換"""
-    return mktime(strptime(formatted_time, "%Y/%m/%d %H:%M:%S")) - 9 * 60 * 60
+    try:
+        # フォーマットを分解
+        year, month, day, hour, minute, second = map(int, formatted_time.replace("/", " ").replace(":", " ").split())
+        # 日本時間のローカルタイムをUNIXタイムに変換（UTC補正を引く）
+        return time.mktime((year, month, day, hour, minute, second, 0, 0)) - 9 * 60 * 60
+    except Exception as e:
+        print(f"Error parsing time: {formatted_time}, {e}")
+        return None
 
 
 def format_time(timestamp):
