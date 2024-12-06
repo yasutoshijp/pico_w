@@ -229,45 +229,42 @@ def execute_script(script_path, wlan, logger):  # loggerパラメータを追加
 def run(wlan, logger):
     global ntp_synced, system_time_offset
     logger.log("\n=== Starting main loop ===")
+    
+    # デバッグ出力を追加
+    def debug_value(val, name=""):
+        logger.log(f"DEBUG {name}: type={type(val)}, value={val}")
+    
     script_states = load_script_states()
     now = time.time()
+    debug_value(now, "now")
 
     ntp_synced = sync_ntp_time(logger)
     logger.log(f"NTP同期状態: {'成功' if ntp_synced else '失敗'}")
 
     for script_path, state in script_states.items():
         logger.log(f"\nProcessing script: {script_path}")
+        debug_value(state, "state")
         
-        if not ntp_synced:
-            logger.log("警告: NTP同期に失敗したため、時刻チェックをスキップしてスクリプトを実行します。")
-            execute_script(script_path, wlan, logger)
-            continue
-
         last_run = state.get("last_run")
+        debug_value(last_run, "last_run")
+        
         if last_run is None:
             logger.log(f"警告: {script_path} の last_run が未設定です。現在のUTC時刻を使用します。")
             last_run = now
             state["last_run"] = now
+            debug_value(last_run, "updated last_run")
 
         time_since_last_run = now - last_run
-        should_run = (not state["last_status"]) or (time_since_last_run >= state["interval"])
+        debug_value(time_since_last_run, "time_since_last_run")
         
-        logger.log(f"Last run (JST): {format_jst_time(last_run)}")
-        logger.log(f"Time since last run: {format_duration(time_since_last_run)}")
-        logger.log(f"Should run: {should_run}")
-
-        if should_run:
-            logger.log(f"実行中: {script_path}")
-            execution_success = execute_script(script_path, wlan, logger)
-            state["last_status"] = execution_success
-            state["last_run"] = now if ntp_synced else last_run + state["interval"]
-            logger.log(f"★Updated state: {state}")
-            logger.log(f"スクリプト実行結果: {execution_success}")
-        else:
-            logger.log(f"スクリプト {script_path} をスキップします")
-
-    save_script_states(script_states)
-    logger.log("\n=== Completed main loop ===")
+        should_run = (not state["last_status"]) or (time_since_last_run >= state["interval"])
+        debug_value(should_run, "should_run")
+        
+        try:
+            logger.log(f"Last run (JST): {format_jst_time(last_run)}")
+        except Exception as e:
+            logger.log(f"Error in format_jst_time: {str(e)}")
+            logger.log(f"Input value: {last_run} (type: {type(last_run)})")
 
 # メインループの実行
 if __name__ == "__main__":
