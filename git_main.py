@@ -13,21 +13,41 @@ import ntptime
 # グローバル変数を明示
 ntp_synced = False
 
+ntp_synced = False  # グローバル変数で状態管理
+system_time_offset = 0  # NTP失敗時の推定時刻管理用
+
 def sync_ntp_time(logger):
-    global ntp_synced
+    """NTP同期を試行（IPアドレス使用版）"""
+    global ntp_synced, system_time_offset
+    import ntptime
     try:
         logger.log("NTP時刻同期を開始...")
+        ntptime.host = "216.239.35.0"  # GoogleのNTPサーバーのIP
         ntptime.timeout = 5
         ntptime.settime()
+        system_time_offset = 0  # NTP同期成功時はオフセットをリセット
         ntp_synced = True
-        t = time.localtime()
+        t = time.localtime(time.time() + 9 * 60 * 60)  # JSTに変換
         logger.log(f"NTP同期成功: {t[0]}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d} (JST)")
         return True
     except Exception as e:
-        logger.log(f"NTP同期失敗: {e}")
+        logger.log(f"NTP同期失敗: {str(e)}")
         ntp_synced = False
+        system_time_offset += 5 * 60  # 推定で5分進める（リトライ間隔分）
         return False
+    
+def get_current_time():
+    """現在の時刻（NTP同期状態に基づく）"""
+    if ntp_synced:
+        return time.time()
+    else:
+        # システム時刻にオフセットを加えて推定時刻を返す
+        return time.time() + system_time_offset
 
+def format_time(timestamp):
+    """UNIXタイムスタンプをフォーマット"""
+    t = time.localtime(timestamp)
+    return f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
 
 def get_current_jst_time():
     """現在の日本時間を取得（UNIXタイム形式）"""
@@ -224,8 +244,10 @@ def execute_script(script_path, wlan):
         sys.print_exception(e)
         return False
 
+
 def run(wlan):
     """メインの実行関数"""
+    global ntp_synced, system_time_offset
     print("\n=== Starting main loop ===")
     script_states = load_script_states()
     now = time.time()  # 現在時刻（UTC）
@@ -260,7 +282,8 @@ def run(wlan):
             print(f"実行中: {script_path}")
             execution_success = execute_script(script_path, wlan)
             state["last_status"] = execution_success
-            state["last_run"] = now  # 実行後の更新
+            # NTP同期失敗時に推定時刻で更新
+            state["last_run"] = now if ntp_synced else last_run + state["interval"]
             print(f"★Updated state: {state}")  # 確認用出力
             print(f"スクリプト実行結果: {execution_success}")
         else:
