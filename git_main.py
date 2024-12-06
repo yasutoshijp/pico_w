@@ -304,4 +304,3 @@ if __name__ == "__main__":
     wlan = None  # wlanは実際の環境で設定
     run(wlan)
 
-
