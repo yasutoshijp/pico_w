@@ -57,9 +57,22 @@ def get_current_jst_time():
 
 def format_jst_time(timestamp):
     """UNIXタイムスタンプを日本時間のyyyy/mm/dd hh:mm:ss形式に変換（表示用）"""
-    timestamp = float(timestamp)  # 確実にfloatに変換
-    t = time.localtime(timestamp + 9 * 60 * 60)  # JST変換
-    return "{:04d}/{:02d}/{:02d} {:02d}:{:02d}:{:02d}".format(*t[:6])
+    try:
+        # 各ステップの値をデバッグ出力
+        print(f"Input timestamp: {timestamp} ({type(timestamp)})")
+        float_ts = float(timestamp)
+        print(f"After float conversion: {float_ts}")
+        jst_ts = float_ts + (9 * 60 * 60)
+        print(f"After JST adjustment: {jst_ts}")
+        time_tuple = time.localtime(jst_ts)
+        print(f"After localtime: {time_tuple}")
+        return "{:04d}/{:02d}/{:02d} {:02d}:{:02d}:{:02d}".format(
+            time_tuple[0], time_tuple[1], time_tuple[2],
+            time_tuple[3], time_tuple[4], time_tuple[5]
+        )
+    except Exception as e:
+        print(f"Error in conversion: {str(e)}")
+        raise
 
 def format_duration(seconds):
     """秒数を読みやすい時間表記に変換"""
