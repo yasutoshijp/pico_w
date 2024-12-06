@@ -258,7 +258,7 @@ def run(wlan, logger):
 
         if should_run:
             logger.log(f"実行中: {script_path}")
-            execution_success = execute_script(script_path, wlan)
+            execution_success = execute_script(script_path, wlan, logger)
             state["last_status"] = execution_success
             state["last_run"] = now if ntp_synced else last_run + state["interval"]
             logger.log(f"★Updated state: {state}")
