@@ -10,7 +10,6 @@ import io
 import ubinascii
 
 
-
 def get_current_jst_time():
     """現在の日本時間を取得（UNIXタイム形式）"""
     return time.time() + 9 * 60 * 60  # UTC + 9時間
@@ -30,8 +29,7 @@ def parse_jst_time(formatted_time):
     except Exception as e:
         print(f"Error parsing time: {formatted_time}, {e}")
         return None
-
-
+    
 def format_time(timestamp):
     """UNIXタイムスタンプを読みやすい形式に変換"""
     try:
@@ -83,13 +81,15 @@ STATE_FILE = "script_states.txt"
 LOG_FILE = "script_logs.txt"
 
 def get_default_states():
-    """デフォルトの状態を返す（時刻を気にせず実行）"""
+    """デフォルトの状態を返す（last_runを現在時刻で初期化）"""
+    current_time = time.time() + 9 * 60 * 60  # 日本時間
     default_states = {
-        "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": None, "last_status": True},  # 実行時刻未設定
-        "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": None, "last_status": True},  # 実行時刻未設定
+        "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": current_time, "last_status": True},  # 15分
+        "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": current_time, "last_status": True},  # 3分
     }
-    print(f"Using default states: 時刻未設定")
+    print(f"Using default states with current time: {format_jst_time(current_time)}")
     return default_states
+
 
 def load_script_states():
     """ファイルから実行状態を読み込む"""
@@ -249,79 +249,55 @@ def execute_script(script_path, wlan):
 
 def run(wlan):
     """メインの実行関数"""
-    print("\n=== Starting git_main.py execution ===")
+    print("\n=== Starting main loop ===")
     print("Loading script states...")
 
-    # システム時刻の確認
-    if not is_valid_time():
-        print("警告: システム時刻が不正です。実行判断を調整します。")
-
+    # 状態ファイルの読み込み
     script_states = load_script_states()
-    now = time.time()
-    
-    print(f"\nCurrent time: {format_time(now)}")
-    
+    now = time.time()  # 現在時刻（UTC）
+
+    print(f"\nCurrent time: {format_jst_time(now)}")
+
     for script_path, state in script_states.items():
         print(f"\nProcessing script: {script_path}")
-        print(f"Last run: {format_time(state['last_run'])}")
-        print(f"Interval: {format_duration(state['interval'])}")
-        print(f"Last status: {state['last_status']}")
         
+        # `last_run`の処理を修正
+        last_run = state.get("last_run")
+        if last_run is None:
+            print(f"警告: {script_path} の last_run が未設定です。現在時刻を代わりに使用します。")
+            last_run = now  # 現在時刻を代入してエラーを回避
+        
+        # 実行間隔の計算
         try:
-            # 時刻が無効な場合は強制実行を検討
-            if not is_valid_time():
-                should_run = True
-                reason = "システム時刻が不正なため強制実行"
-            else:
-                time_since_last_run = now - state['last_run']
-                should_run = (not state['last_status']) or (time_since_last_run >= state['interval'])
-                if not state['last_status']:
-                    reason = "前回失敗のため再実行"
-                else:
-                    reason = f"インターバル経過 (経過時間: {format_duration(time_since_last_run)})"
-            
-            if should_run:
-                print(f"実行理由: {reason}")
-                
-                # スクリプトの存在確認
-                try:
-                    os.stat(script_path)
-                except OSError:
-                    print(f"Script not found: {script_path}")
-                    log_execution(script_path, False, "Script file not found")
-                    continue
-                
-                # スクリプト実行
-                execution_success = execute_script(script_path, wlan)
-                
-                # 状態の更新
-                state['last_status'] = execution_success
-                state['last_run'] = now  # 成功/失敗に関わらず更新
-                if execution_success:
-                    log_execution(script_path, True, f"実行完了 ({reason})")
-                else:
-                    log_execution(script_path, False, f"実行失敗 ({reason})")
-                
-                # 状態の保存
-                save_script_states(script_states)
-                print(f"Updated state for {script_path}: Success={execution_success}")
-                
-            else:
-                remaining_time = state['interval'] - time_since_last_run
-                message = f"スキップ - 次回実行まで {format_duration(remaining_time)}"
-                print(f"スキップ {script_path} - {message}")
-                log_execution(script_path, True, message)
-                
+            time_since_last_run = now - last_run
+            should_run = (not state["last_status"]) or (time_since_last_run >= state["interval"])
+            print(f"Last run: {format_jst_time(last_run)}")
+            print(f"Time since last run: {format_duration(time_since_last_run)}")
+            print(f"Should run: {should_run}")
         except Exception as e:
-            print(f"Error processing script {script_path}: {e}")
-            sys.print_exception(e)
-            log_execution(script_path, False, f"Processing error: {str(e)}")
-            
-        print(f"Finished processing {script_path}")
-        
-    print("\n=== Completed git_main.py execution ===")
+            print(f"エラー: {script_path} の実行間隔計算に失敗しました: {e}")
+            continue
+
+        # 実行条件を満たしている場合の処理
+        if should_run:
+            print(f"実行中: {script_path}")
+            try:
+                execution_success = execute_script(script_path, wlan)
+                state["last_status"] = execution_success
+                state["last_run"] = now
+                print(f"スクリプト実行結果: {execution_success}")
+            except Exception as e:
+                print(f"スクリプト実行中にエラーが発生: {e}")
+        else:
+            print(f"スクリプト {script_path} をスキップします")
+    
+    # 状態を保存
+    save_script_states(script_states)
+    print("\n=== Completed main loop ===")
+
 
 if __name__ == "__main__":
     wlan = None  # wlanは実際の環境で設定
     run(wlan)
+
 
