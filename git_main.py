@@ -40,13 +40,15 @@ def get_current_time():
         # システム時刻にオフセットを加えて推定時刻を返す
         return time.time() + system_time_offset
 
+
 def format_time(timestamp):
     """UNIXタイムスタンプを読みやすいUTC形式に変換"""
     try:
-        t = time.localtime(int(timestamp))
+        t = time.localtime(float(timestamp))  # floatとして処理
         return f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
-    except Exception:
-        return f"Invalid time ({timestamp})"
+    except Exception as e:
+        return f"Invalid time ({timestamp}): {str(e)}"
+
 
 def get_current_jst_time():
     """現在の日本時間を取得（UNIXタイム形式）"""
