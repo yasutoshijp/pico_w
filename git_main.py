@@ -142,15 +142,15 @@ def save_script_states(states):
         temp_file = STATE_FILE + ".tmp"
         with open(temp_file, "w") as f:
             for path, state in states.items():
-                # `last_run`を常にタイムスタンプ形式で保存
                 last_run_str = format_jst_time(state['last_run']) if state['last_run'] else "None"
                 line = f"{path},{state['interval']},{last_run_str},{state['last_status']}\n"
+                print(f"★★Writing line: {line.strip()}")  # 確認用出力
                 f.write(line)
-
         os.rename(temp_file, STATE_FILE)
-        print(f"Successfully saved states to {STATE_FILE}")
+        print(f"★★States saved successfully to {STATE_FILE}")  # 確認用出力
     except Exception as e:
         print(f"Error saving states: {e}")
+
 
 def log_execution(script_path, status, message=""):
     """スクリプトの実行ログを記録"""
