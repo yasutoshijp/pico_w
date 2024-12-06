@@ -58,16 +58,16 @@ def get_current_jst_time():
 def format_jst_time(timestamp):
     """UNIXタイムスタンプを日本時間のyyyy/mm/dd hh:mm:ss形式に変換（表示用）"""
     try:
-        float_ts = float(timestamp)
-        jst_ts = float_ts + (9 * 60 * 60)
-        time_tuple = time.localtime(int(jst_ts))  # 整数に変換
+        ts = int(float(timestamp))  # 浮動小数点を整数に変換
+        jst_ts = ts + (9 * 60 * 60)
+        time_tuple = time.localtime(jst_ts)
         return "{:04d}/{:02d}/{:02d} {:02d}:{:02d}:{:02d}".format(
             time_tuple[0], time_tuple[1], time_tuple[2],
             time_tuple[3], time_tuple[4], time_tuple[5]
         )
     except Exception as e:
         print(f"Error in conversion: {str(e)}")
-        raise
+        return f"Invalid time: {timestamp}"
 
 def format_duration(seconds):
     """秒数を読みやすい時間表記に変換"""
@@ -137,11 +137,7 @@ def load_script_states():
                 path, interval_str, last_run_str, status_str = parts
                 try:
                     interval = int(interval_str)
-                    if last_run_str.lower() == "none":
-                        last_run = None
-                    else:
-                        # UTCエポック秒としてパース
-                        last_run = float(last_run_str)
+                    last_run = int(float(last_run_str)) if last_run_str.lower() != "none" else None
                     status = status_str.lower() == "true"
                     states[path] = {"interval": interval, "last_run": last_run, "last_status": status}
                 except Exception as e:
