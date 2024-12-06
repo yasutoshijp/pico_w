@@ -81,14 +81,15 @@ STATE_FILE = "script_states.txt"
 LOG_FILE = "script_logs.txt"
 
 def get_default_states():
-    """デフォルトの状態を返す（last_runを現在時刻で初期化）"""
-    current_time = time.time() + 9 * 60 * 60  # 日本時間
+    """デフォルトの状態を返す（last_runはUTCで記録）"""
+    current_time = time.time()  # UTC
     default_states = {
         "/remote_code/01.send_to_ss.py": {"interval": 900, "last_run": current_time, "last_status": True},  # 15分
         "/remote_code/02.send_to_ss.py": {"interval": 180, "last_run": current_time, "last_status": True},  # 3分
     }
-    print(f"Using default states with current time: {format_jst_time(current_time)}")
+    print(f"Using default states with current UTC time: {format_utc_time(current_time)}")
     return default_states
+
 
 
 def load_script_states():
