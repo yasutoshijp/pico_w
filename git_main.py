@@ -275,4 +275,4 @@ if __name__ == "__main__":
             print(msg)
     wlan = None
     logger = DummyLogger()
-    run(wlan, logger)  # loggerを渡す
+    run(wlan, logger)
