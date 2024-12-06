@@ -56,7 +56,7 @@ def get_current_jst_time():
 
 def format_jst_time(timestamp):
     """UNIXタイムスタンプを日本時間のyyyy/mm/dd hh:mm:ss形式に変換（表示用）"""
-    t = time.localtime(timestamp + 9 * 60 * 60)  # JST（UTC+9）に変換
+    t = time.localtime(float(timestamp) + 9 * 60 * 60)  # JST（UTC+9）に変換
     return "{:04d}/{:02d}/{:02d} {:02d}:{:02d}:{:02d}".format(t[0], t[1], t[2], t[3], t[4], t[5])
 
 def format_duration(seconds):
@@ -187,13 +187,14 @@ def log_execution(script_path, status, message=""):
             os.remove(temp_log)
         except:
             pass
-def execute_script(script_path, wlan, logger):
-    logger.log(f"\n=== Executing {script_path} ===")
+def execute_script(script_path, wlan):
+    """スクリプトを実行"""
+    print(f"\n=== Executing {script_path} ===")
     try:
-        logger.log("Reading script file...")
+        print(f"Reading script file...")
         with open(script_path, "r") as script_file:
             code = script_file.read()
-            logger.log(f"Loaded {len(code)} bytes of code")
+            print(f"Loaded {len(code)} bytes of code")
             
             globals_dict = {
                 'wlan': wlan,
@@ -211,17 +212,17 @@ def execute_script(script_path, wlan, logger):
                 'ubinascii': ubinascii,
                 'BME280': BME280,
                 'bme280': sys.modules['bme280'],
-                'logger': logger  # loggerを渡す
+                'logger': logger  # これを追加
             }
             
-            logger.log(f"Starting execution with globals: {list(globals_dict.keys())}")
+            print(f"Starting execution with globals: {list(globals_dict.keys())}")
             exec(code, globals_dict)
             
-        logger.log(f"Successfully executed: {script_path}")
+        print(f"Successfully executed: {script_path}")
         return True
         
     except Exception as e:
-        logger.log(f"Error executing script {script_path}: {e}")
+        print(f"Error executing script {script_path}: {e}")
         sys.print_exception(e)
         return False
 
@@ -257,7 +258,7 @@ def run(wlan, logger):
 
         if should_run:
             logger.log(f"実行中: {script_path}")
-            execution_success = execute_script(script_path, wlan, logger)
+            execution_success = execute_script(script_path, wlan)
             state["last_status"] = execution_success
             state["last_run"] = now if ntp_synced else last_run + state["interval"]
             logger.log(f"★Updated state: {state}")
@@ -268,10 +269,10 @@ def run(wlan, logger):
     save_script_states(script_states)
     logger.log("\n=== Completed main loop ===")
 
+# メインループの実行を条件付きに
 if __name__ == "__main__":
-    class DummyLogger:
-        def log(self, msg):
-            print(msg)
-    logger = DummyLogger()
     wlan = None
-    run(wlan, logger)
+    run(wlan)
+else:
+    # モジュールとしてインポートされた場合は関数のみを提供
+    pass
