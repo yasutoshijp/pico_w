@@ -10,6 +10,7 @@ import io
 import ubinascii
 import ntptime
 
+
 # グローバル変数
 ntp_synced = False
 system_time_offset = 0
