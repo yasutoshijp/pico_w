@@ -38,7 +38,7 @@ def execute_scripts():
                 # スクリプトを読み込んで実行
                 with open(script_path, "r") as file:
                     code = file.read()
-                    exec(code)  # スクリプトを実行
+                    exec(code, global_context)  # グローバルコンテキストを渡す
 
             except Exception as e:
                 print(f"Error executing script {script}: {e}")
