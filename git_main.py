@@ -1,6 +1,9 @@
+import os
 import sys
 import time
 import machine
+
+REMOTE_CODE_PATH = "/remote_code"
 
 # BME280モジュールの読み込み
 try:
@@ -14,33 +17,35 @@ try:
 except Exception as e:
     print(f"Error loading BME280 module: {e}")
 
-def execute_script(script_path):
-    """スクリプトを実行"""
-    print(f"\n=== Executing {script_path} ===")
+def execute_scripts():
+    """remote_code 配下のスクリプトを動的にロードして実行"""
     try:
-        with open(script_path, "r") as script_file:
-            code = script_file.read()
-            globals_dict = {
-                'machine': machine,
-                'time': time,
-                'BME280': BME280,
-            }
-            exec(code, globals_dict)
-        print(f"Successfully executed: {script_path}")
-        return True
-    except Exception as e:
-        print(f"Error executing script {script_path}: {e}")
-        return False
+        # remote_code 配下のスクリプトを取得
+        scripts = [
+            f for f in os.listdir(REMOTE_CODE_PATH)
+            if f.endswith("_script.py")  # スクリプト命名規則に基づく
+        ]
 
-def run():
-    """メイン関数"""
-    scripts = [
-        "/remote_code/01.send_to_ss.py",
-    ]
-    
-    for script_path in scripts:
-        execute_script(script_path)
-        time.sleep(2)
+        if not scripts:
+            print("No scripts found to execute.")
+            return
+
+        for script in scripts:
+            try:
+                script_path = f"{REMOTE_CODE_PATH}/{script}"
+                print(f"Executing script: {script_path}")
+
+                # スクリプトを読み込んで実行
+                with open(script_path, "r") as file:
+                    code = file.read()
+                    exec(code)  # スクリプトを実行
+
+            except Exception as e:
+                print(f"Error executing script {script}: {e}")
+
+    except Exception as e:
+        print(f"Error in execute_scripts: {e}")
 
 if __name__ == "__main__":
-    run()
+    execute_scripts()
+
