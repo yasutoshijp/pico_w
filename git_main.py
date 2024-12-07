@@ -19,6 +19,7 @@ except Exception as e:
 
 
 
+
 # グローバル設定（必要な変数をここで定義）
 global_context = {
     "DEBUG": True,
