@@ -17,6 +17,8 @@ try:
 except Exception as e:
     print(f"Error loading BME280 module: {e}")
 
+
+
 # グローバル設定（必要な変数をここで定義）
 global_context = {
     "DEBUG": True,
