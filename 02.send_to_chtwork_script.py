@@ -54,6 +54,8 @@ def get_pico_info():
     }
     return pico_info
 
+import json  # 修正ポイント
+
 def send_to_chatwork(info):
     """ChatWorkに情報を送信"""
     message_body = (
@@ -67,7 +69,8 @@ def send_to_chatwork(info):
     )
     
     headers = {
-        'X-ChatWorkToken': CHATWORK_API_TOKEN
+        'X-ChatWorkToken': CHATWORK_API_TOKEN,
+        'Content-Type': 'application/x-www-form-urlencoded'  # 修正ポイント
     }
     data = {
         'body': message_body
@@ -78,7 +81,7 @@ def send_to_chatwork(info):
         response = urequests.post(
             CHATWORK_API_ENDPOINT,
             headers=headers,
-            data=data
+            data=json.dumps(data)  # 修正ポイント: JSON形式に変換
         )
         debug_print(f"レスポンス: {response.status_code}, {response.text}")
         response.close()
@@ -86,6 +89,7 @@ def send_to_chatwork(info):
     except Exception as e:
         debug_print(f"エラー: {e}")
         return False
+
 
 def main():
     """メイン処理"""
