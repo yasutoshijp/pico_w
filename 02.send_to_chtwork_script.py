@@ -3,19 +3,15 @@ import gc
 import time
 import sys
 import network
-
 # LED設定
 from machine import Pin
 led = Pin("LED", Pin.OUT)
-
 # デバッグモード
 DEBUG = True
-
 # ChatWork API設定
 CHATWORK_API_TOKEN = 'fba258f13899e421b3ab7a3a50488807'
 CHATWORK_ROOM_ID = '67549413'
 CHATWORK_API_ENDPOINT = f"https://api.chatwork.com/v2/rooms/{CHATWORK_ROOM_ID}/messages"
-
 # グローバル変数
 wlan = None
 
@@ -40,7 +36,6 @@ def get_pico_info():
     connected, ssid, local_wlan = connect_wifi()
     if not connected:
         return None
-
     # システム情報を作成
     gc.collect()
     pico_info = {
@@ -53,8 +48,6 @@ def get_pico_info():
         "uptime": time.ticks_ms() // 1000  # 秒単位の起動時間
     }
     return pico_info
-
-import json  # 修正ポイント
 
 def send_to_chatwork(info):
     """ChatWorkに情報を送信"""
@@ -70,18 +63,19 @@ def send_to_chatwork(info):
     
     headers = {
         'X-ChatWorkToken': CHATWORK_API_TOKEN,
-        'Content-Type': 'application/x-www-form-urlencoded'  # 修正ポイント
+        'Content-Type': 'application/x-www-form-urlencoded'  # 追加
     }
-    data = {
-        'body': message_body
-    }
-
+    
+    # URLエンコードされたデータとして送信
+    data = f"body={message_body}"  # 修正
+    
     try:
         debug_print("ChatWorkに送信中...")
+        debug_print(f"送信データ: {data}")  # デバッグ用
         response = urequests.post(
             CHATWORK_API_ENDPOINT,
             headers=headers,
-            data=json.dumps(data)  # 修正ポイント: JSON形式に変換
+            data=data
         )
         debug_print(f"レスポンス: {response.status_code}, {response.text}")
         response.close()
@@ -89,7 +83,6 @@ def send_to_chatwork(info):
     except Exception as e:
         debug_print(f"エラー: {e}")
         return False
-
 
 def main():
     """メイン処理"""
@@ -99,7 +92,6 @@ def main():
         if not info:
             debug_print("システム情報の取得に失敗しました。")
             return
-
         if send_to_chatwork(info):
             debug_print("ChatWorkへの送信成功")
             led.value(1)
@@ -112,7 +104,6 @@ def main():
                 time.sleep(0.2)
                 led.value(0)
                 time.sleep(0.2)
-
     except Exception as e:
         debug_print(f"メインループエラー: {e}")
         time.sleep(5)
