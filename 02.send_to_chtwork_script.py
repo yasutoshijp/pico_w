@@ -10,7 +10,7 @@ led = Pin("LED", Pin.OUT)
 DEBUG = True
 # ChatWork API設定
 CHATWORK_API_TOKEN = 'fba258f13899e421b3ab7a3a50488807'
-CHATWORK_ROOM_ID = '67549413'
+CHATWORK_ROOM_ID = '67575950'
 CHATWORK_API_ENDPOINT = f"https://api.chatwork.com/v2/rooms/{CHATWORK_ROOM_ID}/messages"
 # グローバル変数
 wlan = None
