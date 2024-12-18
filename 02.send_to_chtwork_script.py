@@ -3,15 +3,22 @@ import gc
 import time
 import sys
 import network
-# LED設定
 from machine import Pin
+#★6時間毎に変更してみた
+# ファイル名
+LAST_SENT_FILE = "last_sent_time.txt"
+
+# LED設定
 led = Pin("LED", Pin.OUT)
+
 # デバッグモード
 DEBUG = True
+
 # ChatWork API設定
 CHATWORK_API_TOKEN = 'fba258f13899e421b3ab7a3a50488807'
 CHATWORK_ROOM_ID = '67575950'
 CHATWORK_API_ENDPOINT = f"https://api.chatwork.com/v2/rooms/{CHATWORK_ROOM_ID}/messages"
+
 # グローバル変数
 wlan = None
 
@@ -21,7 +28,7 @@ def debug_print(*args):
         print("DEBUG:", *args)
 
 def connect_wifi():
-    """Wi-Fi接続を確立（呼び出し元で実行済と想定）"""
+    """Wi-Fi接続を確立"""
     global wlan
     if wlan is None:
         wlan = network.WLAN(network.STA_IF)
@@ -49,8 +56,36 @@ def get_pico_info():
     }
     return pico_info
 
+def read_last_sent_time():
+    """前回送信時刻をファイルから読み取る"""
+    try:
+        with open(LAST_SENT_FILE, "r") as file:
+            last_time = int(file.read().strip())
+            debug_print(f"前回送信時刻を読み取り: {last_time}")
+            return last_time
+    except Exception as e:
+        debug_print(f"前回送信時刻の読み取りエラー: {e}")
+        return 0  # ファイルが存在しない場合は初期値を返す
+
+def save_last_sent_time(timestamp):
+    """現在の送信時刻をファイルに保存"""
+    try:
+        with open(LAST_SENT_FILE, "w") as file:
+            file.write(str(timestamp))
+            debug_print(f"送信時刻を保存: {timestamp}")
+    except Exception as e:
+        debug_print(f"送信時刻の保存エラー: {e}")
+
 def send_to_chatwork(info):
     """ChatWorkに情報を送信"""
+    last_sent_time = read_last_sent_time()
+    current_time = time.time()
+
+    # 前回送信から6時間（21600秒）未満ならスキップ
+    if current_time - last_sent_time < 21600:
+        debug_print("6時間未満のため送信をスキップします。")
+        return False
+
     message_body = (
         "Raspberry Pi Pico Wから送信しています。\n"
         f"IPアドレス: {info['ip_address']}\n"
@@ -63,15 +98,12 @@ def send_to_chatwork(info):
     
     headers = {
         'X-ChatWorkToken': CHATWORK_API_TOKEN,
-        'Content-Type': 'application/x-www-form-urlencoded'  # 追加
+        'Content-Type': 'application/x-www-form-urlencoded'
     }
-    
-    # URLエンコードされたデータとして送信
-    data = f"body={message_body}"  # 修正
-    
+    data = f"body={message_body}"
+
     try:
         debug_print("ChatWorkに送信中...")
-        debug_print(f"送信データ: {data}")  # デバッグ用
         response = urequests.post(
             CHATWORK_API_ENDPOINT,
             headers=headers,
@@ -79,6 +111,8 @@ def send_to_chatwork(info):
         )
         debug_print(f"レスポンス: {response.status_code}, {response.text}")
         response.close()
+        if response.status_code == 200:
+            save_last_sent_time(current_time)  # 送信成功時にファイルへ保存
         return response.status_code == 200
     except Exception as e:
         debug_print(f"エラー: {e}")
@@ -98,7 +132,7 @@ def main():
             time.sleep(0.5)
             led.value(0)
         else:
-            debug_print("ChatWorkへの送信に失敗しました。")
+            debug_print("ChatWorkへの送信をスキップまたは失敗しました。")
             for _ in range(3):  # エラー時のLED点滅
                 led.value(1)
                 time.sleep(0.2)
