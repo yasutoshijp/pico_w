@@ -81,7 +81,38 @@ def connect_wifi():
 
     led.value(0)
     return False, None, None
+    
+# DHT11の生データ取得用の関数を追加
+def read_dht11_raw_timing(pin_num):
+    pin = Pin(pin_num, Pin.IN)
+    timings = []
+    last_transition = time.ticks_us()
+    
+    # 開始シグナル
+    pin.init(Pin.OUT)
+    pin.value(1)
+    time.sleep_ms(50)
+    pin.value(0)
+    time.sleep_ms(20)
+    
+    # ピンを入力モードに切り替え
+    pin.init(Pin.IN)
+    
+    # データ読み取り
+    level = 0
+    for _ in range(85):  # 応答 + 40ビットデータ
+        while pin.value() == level:
+            if time.ticks_diff(time.ticks_us(), last_transition) > 100000:
+                return None
+        
+        current = time.ticks_us()
+        timings.append(time.ticks_diff(current, last_transition))
+        last_transition = current
+        level = pin.value()
+    
+    return timings
 
+# try_send_data関数内のデータ取得部分を修正
 def try_send_data():
     """データを送信する"""
     global wlan
@@ -96,17 +127,22 @@ def try_send_data():
         # DHT11センサーから読み取り
         try:
             debug_print("Reading DHT11 sensor...")
+            # 通常の測定
             dht.measure()
             temperature = dht.temperature()
             humidity = dht.humidity()
             
+            # 生データの取得
+            raw_timings = read_dht11_raw_timing(28)  # GPIO 28を使用
+            
             debug_print(f"温度: {temperature}°C")
             debug_print(f"湿度: {humidity}%")
+            debug_print(f"生データ: {raw_timings}")
         except Exception as e:
             debug_print(f"Error reading from DHT11: {e}")
             return False
 
-        # データ作成
+        # データ作成（生データを追加）
         data = {
             "device_id": "PicoW-01",
             "ip_address": local_wlan.ifconfig()[0],
@@ -115,8 +151,9 @@ def try_send_data():
             "memory_free": gc.mem_free(),
             "signal_strength": local_wlan.status('rssi') if local_wlan else None,
             "temperature": temperature,
-            "humidity": humidity,  # humidityとして送信
-            "pressure": None,  # DHT11は気圧を測定しないのでNone
+            "humidity": humidity,
+            "pressure": None,
+            "raw_data": raw_timings,  # 生データを追加
             "timestamp": time.time()
         }
         
