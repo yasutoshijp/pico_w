@@ -11,13 +11,13 @@ if REMOTE_CODE_PATH not in sys.path:
     sys.path.append(REMOTE_CODE_PATH)
 if LIB_PATH not in sys.path:
     sys.path.append(LIB_PATH)
-from dht import DHT11
+from dht import DHT22  # DHT11からDHT22に変更
 # デバッグモード
 DEBUG = True
 # LED設定
 led = Pin("LED", Pin.OUT)
-# DHT11センサー設定
-dht = DHT11(Pin(28))  # GPIO 28に接続
+# DHT22センサー設定
+dht = DHT22(Pin(28))  # GPIO 28に接続。DHT11からDHT22に変更
 # 設定
 ENDPOINT = "https://script.google.com/macros/s/AKfycbztdwfhufixP7Rd2Xs2UgaymT5IwNn294LgEB2q7gX1dyhR1i0FSw4X0RpW5NO1skM0/exec"
 MAX_WAIT = 30
@@ -75,9 +75,9 @@ def try_send_data():
         connected, ssid, local_wlan = connect_wifi()
         if not connected:
             return False
-        # DHT11センサーから読み取り
+        # DHT22センサーから読み取り
         try:
-            debug_print("Reading DHT11 sensor...")
+            debug_print("Reading DHT22 sensor...")  # メッセージをDHT22に更新
             dht.measure()
             temperature = dht.temperature()
             humidity = dht.humidity()
@@ -85,7 +85,7 @@ def try_send_data():
             debug_print(f"温度: {temperature}°C")
             debug_print(f"湿度: {humidity}%")
         except Exception as e:
-            debug_print(f"Error reading from DHT11: {e}")
+            debug_print(f"Error reading from DHT22: {e}")  # エラーメッセージをDHT22に更新
             return False
         # データ作成
         data = {
@@ -96,8 +96,8 @@ def try_send_data():
             "memory_free": gc.mem_free(),
             "signal_strength": local_wlan.status('rssi') if local_wlan else None,
             "temperature": temperature,
-            "humidity": humidity,  # humidityとして送信
-            "pressure": None,  # DHT11は気圧を測定しないのでNone
+            "humidity": humidity,
+            "pressure": None,
             "timestamp": time.time()
         }
         
