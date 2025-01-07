@@ -4,7 +4,6 @@ import time
 import urequests
 import gc
 import sys
-import socket
 
 # 必要なパスを確認し追加
 REMOTE_CODE_PATH = "/remote_code"
@@ -74,29 +73,46 @@ def connect_wifi():
     led.value(0)
     return False, None, None
 
+def test_connection(ip, port=4040):
+    """指定したIPとポートへの接続をテスト"""
+    import socket
+    try:
+        addr = socket.getaddrinfo(ip, port)[0][-1]
+        s = socket.socket()
+        s.settimeout(1)  # 1秒タイムアウト
+        result = s.connect_ex(addr)
+        s.close()
+        return result == 0
+    except:
+        return False
+
 def find_raspberry_pi():
     """RaspberryPiのIPを探す"""
     try:
-        # ngrokの管理インターフェースポートをスキャン
-        debug_print("Scanning for Raspberry Pi...")
+        # USB接続先（RaspberryPi）のIPをチェック
+        debug_print("Checking USB connection...")
+        if test_connection("raspberrypi.local", 4040):
+            return "raspberrypi.local", True
         
-        # まずlocalhost（USB接続されているRaspberryPi）をチェック
-        try:
-            response = urequests.get("http://localhost:4040/api/tunnels", timeout=5)
-            return "localhost", True
-        except:
-            debug_print("localhost:4040 not accessible")
-
-        # ローカルネットワークの一般的なRaspberry PiのIPレンジをスキャン
-        base_ip = wlan.ifconfig()[0].rsplit('.', 1)[0]
-        for i in range(1, 255):
-            ip = f"{base_ip}.{i}"
-            try:
-                response = urequests.get(f"http://{ip}:4040/api/tunnels", timeout=1)
-                return ip, True
-            except:
-                continue
+        # ネットワーク内をスキャン
+        if wlan and wlan.isconnected():
+            base_ip = wlan.ifconfig()[0].rsplit('.', 1)[0]
+            # よく使われるRaspberry PiのIPアドレスを優先的にチェック
+            priority_hosts = [
+                f"{base_ip}.1",     # デフォルトゲートウェイ
+                f"{base_ip}.100",   # 固定IP設定でよく使用される
+                f"{base_ip}.200",
+                "192.168.1.100",
+                "192.168.1.200"
+            ]
             
+            # 優先IPをチェック
+            for ip in priority_hosts:
+                debug_print(f"Checking priority IP: {ip}")
+                if test_connection(ip, 4040):
+                    return ip, True
+            
+        debug_print("Raspberry Pi not found")
         return None, False
             
     except Exception as e:
@@ -126,6 +142,25 @@ def send_to_chatwork(message):
         debug_print(f"Error sending to Chatwork: {e}")
         return False
 
+def create_network_info():
+    """ネットワーク情報を収集"""
+    info = []
+    try:
+        if wlan and wlan.isconnected():
+            ifconfig = wlan.ifconfig()
+            info.extend([
+                f"Pico W IP: {ifconfig[0]}",
+                f"Network Mask: {ifconfig[1]}",
+                f"Gateway: {ifconfig[2]}",
+                f"DNS: {ifconfig[3]}",
+                f"SSID: {wlan.config('essid')}",
+                f"RSSI: {wlan.status('rssi')}dBm"
+            ])
+    except Exception as e:
+        info.append(f"Network info error: {e}")
+    
+    return "\n".join(info)
+
 def main():
     """メイン処理"""
     debug_print("開始")
@@ -140,11 +175,14 @@ def main():
         # RaspberryPiを探す
         ip, found = find_raspberry_pi()
         
+        # ネットワーク情報を収集
+        network_info = create_network_info()
+        
         if found:
-            message = f"[IP確認成功] RaspberryPiのIP: {ip}"
+            message = f"[IP確認成功] RaspberryPiのIP: {ip}\n\n{network_info}"
             led.value(1)
         else:
-            message = "[IP確認失敗] RaspberryPiが見つかりませんでした"
+            message = f"[IP確認失敗] RaspberryPiが見つかりませんでした\n\n{network_info}"
             # エラー時のLED点滅
             for _ in range(3):
                 led.value(1)
